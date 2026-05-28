@@ -321,11 +321,180 @@ Open treasury modes:
 4. Contract reimburses KMS/EOA execution wallet.
 5. No treasury; contract only records usage.
 
-## 7. FOC Integration Modes
+## 7. FOC Session-Key Primitive
+
+Synapse / FOC includes an onchain **SessionKeyRegistry** and SDK support for temporary delegated signing keys. This primitive is important for `foc-platform` because it already solves part of the problem this stack needs: a root identity can authorize another key to perform a limited set of FOC storage operations for a bounded time window.
+
+### 7.1 What FOC session keys are
+
+A FOC session key is an ephemeral signing key authorized by a root wallet through the `SessionKeyRegistry` contract.
+
+The registry stores grants of the form:
+
+```text
+root identity address -> session signer address -> permission bytes32 -> expiry timestamp
+```
+
+The public registry surface includes:
+
+```solidity
+function login(address signer, uint256 expiry, bytes32[] permissions, string origin) external;
+function loginAndFund(address payable signer, uint256 expiry, bytes32[] permissions, string origin) external payable;
+function revoke(address signer, bytes32[] permissions, string origin) external;
+function authorizationExpiry(address user, address signer, bytes32 permission) external view returns (uint256);
+```
+
+The registry emits:
+
+```solidity
+event AuthorizationsUpdated(
+  address indexed identity,
+  address signer,
+  uint256 expiry,
+  bytes32[] permissions,
+  string origin
+);
+```
+
+The SDK wraps this as `SessionKey.fromSecp256k1(...)`, `login(...)`, `revoke(...)`, `syncExpirations()`, and `hasPermissions(...)`.
+
+### 7.2 Current FOC permissions
+
+The SDK defines four default FWSS permissions. These permissions are the `keccak256` type hashes of the corresponding EIP-712 operation types:
+
+- `CreateDataSetPermission`
+- `AddPiecesPermission`
+- `SchedulePieceRemovalsPermission`
+- `DeleteDataSetPermission`
+
+The default permission set is:
+
+```ts
+DefaultFwssPermissions = [
+  CreateDataSetPermission,
+  AddPiecesPermission,
+  SchedulePieceRemovalsPermission,
+  DeleteDataSetPermission,
+]
+```
+
+The registry itself is permission-hash agnostic; it can store arbitrary `bytes32` permissions. The current FWSS contracts and SDK convention use the EIP-712 type hashes above.
+
+### 7.3 How session keys are used in Synapse
+
+Session keys are not payment accounts. They are delegated signers.
+
+In Synapse:
+
+- the **root wallet** owns the FOC identity, funds, payment rails, and datasets;
+- the **session key** signs FOC EIP-712 operation payloads;
+- FOC extraData includes the root/payer address, operation parameters, and the session-key signature;
+- FWSS can validate that the recovered signer is authorized for the relevant operation type and not expired.
+
+The SDK's `SessionKeyAccount` carries both:
+
+```ts
+address      // session signer address
+rootAddress  // root identity / payer address
+```
+
+For dataset creation, the SDK explicitly supports a different payer when a session key signs:
+
+```ts
+createDataSet(sessionKey.client, {
+  payer: sessionKey.rootAddress,
+  ...
+})
+```
+
+For high-level use, `Synapse.create({ account: rootAccount, sessionKey })` validates that the session key has all default FWSS permissions before enabling it for eligible storage operations.
+
+### 7.4 Why this matters for foc-platform
+
+The FOC session-key primitive is close to the runner authorization model needed by `foc-platform`.
+
+It provides:
+
+- an existing onchain authorization registry,
+- time-bounded delegation,
+- operation-scoped permissions,
+- revocation,
+- event-based observability,
+- compatibility with current Synapse SDK storage flows,
+- reduced need to keep a hot root wallet online for every FOC operation.
+
+For platform use, the most direct pattern is:
+
+```text
+platform root wallet / payer
+  -> authorizes runner session key in SessionKeyRegistry
+  -> runner uses session key with Synapse SDK
+  -> FOC datasets and payment rails remain owned by platform root
+  -> platform wrapper contracts record per-user attribution and usage
+```
+
+This gives the platform a safer operational model than using the root wallet directly for all uploads.
+
+### 7.5 Recommended v1 use of session keys
+
+For the first implementation, `foc-platform` SHOULD treat FOC session keys as the preferred authorization layer between the platform's FOC payer identity and the offchain runner.
+
+Recommended v1 model:
+
+1. Platform has a FOC payer/root wallet, likely EOA/KMS initially.
+2. Platform generates one or more runner session keys.
+3. Platform root calls `SessionKeyRegistry.login(...)` with scoped FWSS permissions and a short expiry.
+4. Runner uses the session key with Synapse SDK for create dataset / add pieces / deletion operations.
+5. Platform contract stack independently records upload request, user attribution, quota/billing impact, and final receipt.
+6. Platform root periodically refreshes or revokes runner session keys.
+
+This separates three concerns:
+
+- FOC root identity and funds,
+- operational signing by runner keys,
+- user-level policy/accounting in platform contracts.
+
+### 7.6 Session keys vs platform user intents
+
+FOC session keys and platform user intents solve different layers.
+
+| Layer | Primitive | Purpose |
+| --- | --- | --- |
+| User -> platform | Platform EIP-712 storage intent | User authorizes the platform action and billing/quota impact. |
+| Platform -> FOC runner | FOC session key | Platform root authorizes runner to perform FOC operations. |
+| FOC runner -> provider/FWSS | Synapse signed extraData | Provider/FWSS verifies operation authorization. |
+| Platform accounting | Platform contracts | Track object ownership, usage, quotas, charges, and receipts. |
+
+The platform SHOULD NOT treat a FOC session key as proof that an end user requested an upload. End-user authorization should remain in the platform contract stack.
+
+### 7.7 Contract-wallet considerations
+
+Session keys currently appear EOA/secp256k1-oriented in the SDK. The SDK creates session keys from private keys and signs EIP-712 payloads as a local account.
+
+Open compatibility questions remain:
+
+- Can the root identity be a smart account or contract wallet that calls `SessionKeyRegistry.login(...)`?
+- Does FWSS validate EIP-712 signatures only via ECDSA recovery, or can it support ERC-1271 smart-account signatures?
+- If the root is a contract, can the session key still sign as an EOA while the payer/root address is the contract?
+- Can a contract root hold USDFC, approve Filecoin Pay/Warm Storage, and own datasets/payment rails?
+
+Until these are tested, the safest architecture is:
+
+```text
+EOA/KMS platform root wallet + FOC session keys for runner execution + platform contracts for user accounting
+```
+
+### 7.8 Spec implication
+
+The FOC session-key primitive should be considered a first-class building block of the platform stack, but not a complete replacement for the platform contract stack.
+
+It should be used for **operator delegation into FOC**, while the platform contracts handle **multi-tenant product semantics**.
+
+## 8. FOC Integration Modes
 
 The stack MUST support multiple FOC payment/execution modes until compatibility is proven.
 
-### 7.1 Mode A: Platform EOA/KMS pays FOC
+### 8.1 Mode A: Platform EOA/KMS pays FOC
 
 A platform-managed EOA signs Synapse SDK operations and pays FOC. Platform contracts record usage and receipts.
 
@@ -342,7 +511,7 @@ Cons:
 - requires signer custody/KMS,
 - trust bridge between FOC txs and platform receipts.
 
-### 7.2 Mode B: Platform smart account pays FOC
+### 8.2 Mode B: Platform smart account pays FOC
 
 A smart account is the FOC payer and uses account abstraction or ERC-1271-compatible signing.
 
@@ -358,7 +527,7 @@ Cons:
 - may require SDK changes,
 - may require ERC-1271 support in auth paths.
 
-### 7.3 Mode C: Platform treasury contract pays FOC directly
+### 8.3 Mode C: Platform treasury contract pays FOC directly
 
 Platform contract holds USDFC and directly calls Filecoin Pay / Warm Storage contracts.
 
@@ -373,7 +542,7 @@ Cons:
 - contract cannot upload bytes,
 - likely needs custom integration beyond current SDK.
 
-### 7.4 Mode D: Users pay FOC directly, platform records usage
+### 8.4 Mode D: Users pay FOC directly, platform records usage
 
 User wallets perform FOC payments/operations directly while platform contracts record attribution.
 
@@ -388,7 +557,7 @@ Cons:
 - users need funds and approvals,
 - platform cannot easily abstract FOC.
 
-### 7.5 Mode E: Hybrid
+### 8.5 Mode E: Hybrid
 
 The platform supports multiple modes per tenant or deployment.
 
@@ -398,11 +567,11 @@ Examples:
 - enterprise users use dedicated smart account,
 - advanced users bring their own FOC wallet.
 
-## 8. Offchain Runner
+## 9. Offchain Runner
 
 A runner is required for byte movement and FOC execution.
 
-### 8.1 Responsibilities
+### 9.1 Responsibilities
 
 The runner MAY:
 
@@ -417,7 +586,7 @@ The runner MAY:
 - retry failed phases,
 - emit logs/metrics.
 
-### 8.2 Statelessness requirement
+### 9.2 Statelessness requirement
 
 The runner SHOULD be reconstructable from chain state.
 
@@ -432,7 +601,7 @@ Allowed runner state:
 
 Authoritative state SHOULD be in platform contracts and FOC contracts.
 
-### 8.3 Runner trust model
+### 9.3 Runner trust model
 
 Open options:
 
@@ -444,7 +613,7 @@ Open options:
 
 MVP may use a trusted runner with admin allowlisting.
 
-### 8.4 Finalization
+### 9.4 Finalization
 
 Runner calls a function such as:
 
@@ -466,11 +635,11 @@ Open receipt design:
 - verify FOC contract events onchain if feasible,
 - rely on allowlisted runner assertion for MVP.
 
-## 9. Token Host Builder Integration
+## 10. Token Host Builder Integration
 
 Token Host Builder can accelerate this stack because it already supports schema-generated EVM CRUD apps, onchain indexing, Filecoin upload adapters, Filecoin chain targets, generated UI, and sponsored transaction concepts.
 
-### 9.1 Possible schema extension
+### 10.1 Possible schema extension
 
 Potential schema surface:
 
@@ -494,7 +663,7 @@ Potential schema surface:
 }
 ```
 
-### 9.2 Generated collections
+### 10.2 Generated collections
 
 Token Host MAY generate base collections/contracts for:
 
@@ -507,7 +676,7 @@ Token Host MAY generate base collections/contracts for:
 - `Runner`,
 - `BillingPlan`.
 
-### 9.3 Generated indexes
+### 10.3 Generated indexes
 
 Useful indexes:
 
@@ -519,7 +688,7 @@ Useful indexes:
 - datasets by provider,
 - copies by object.
 
-### 9.4 Generated UI/admin
+### 10.4 Generated UI/admin
 
 Token Host MAY emit:
 
@@ -531,7 +700,7 @@ Token Host MAY emit:
 - FOC account runway view,
 - object detail with PieceCID/provider/dataset receipts.
 
-### 9.5 Upload adapter evolution
+### 10.5 Upload adapter evolution
 
 Current Token Host upload adapters can prototype FOC upload via `foc-cli`. Production SHOULD prefer direct Synapse SDK integration.
 
@@ -543,7 +712,7 @@ Potential runner modes:
 4. `worker`: background worker / serverless queue.
 5. `browser-assisted`: client uploads bytes, runner finalizes.
 
-## 10. Synapse SDK Requirements / Opportunities
+## 11. Synapse SDK Requirements / Opportunities
 
 Potential SDK support needed:
 
@@ -555,11 +724,15 @@ Potential SDK support needed:
 - KMS signer examples,
 - dataset metadata strategy for multi-tenant platforms,
 - receipt/reconciliation helpers,
-- optional runner-friendly APIs for split upload phases.
+- optional runner-friendly APIs for split upload phases,
+- documented session-key runner pattern,
+- session-key lifecycle helpers for backend services,
+- short-lived runner key examples,
+- clear description of which operations require FWSS permissions and which require payment/operator approvals.
 
-## 11. foc-cli and foc-storage-mcp Roles
+## 12. foc-cli and foc-storage-mcp Roles
 
-### 11.1 `foc-cli`
+### 12.1 `foc-cli`
 
 Should remain useful for:
 
@@ -577,7 +750,7 @@ Potential additions:
 - `foc-cli platform reconcile`,
 - `foc-cli upload --receipt-format platform`.
 
-### 11.2 `foc-storage-mcp`
+### 12.2 `foc-storage-mcp`
 
 Should remain useful for AI-agent operations, but reusable logic may be extracted for platform use:
 
@@ -593,7 +766,7 @@ Potential package split:
 - `@fil-b/foc-storage-mcp`,
 - `@fil-b/foc-platform-runner`.
 
-## 12. Compatibility Spike Requirements
+## 13. Compatibility Spike Requirements
 
 Before choosing final wallet/payment mode, run compatibility tests on Calibration.
 
@@ -606,9 +779,13 @@ Required questions:
 5. Do FOC provider HTTP auth flows require EOA signatures?
 6. Is ERC-1271 supported or needed?
 7. Can Synapse session keys be rooted in a smart account or contract wallet?
-8. Can FOC receipts be compactly represented and verified by a wrapper contract?
-9. What minimum data must be stored onchain to reconstruct user/object usage?
-10. What gas costs result from storing full receipts vs compact hashes/events?
+8. Can an EOA session key sign for a contract root/payer if the contract root authorized it through `SessionKeyRegistry.login(...)`?
+9. Does FWSS validate session-key authorization based only on the recovered signer plus root/payer address, or are there implicit EOA assumptions about the root?
+10. Does `loginAndFund` matter for runner session keys on Filecoin, or should runner keys remain unfunded except for gas edge cases?
+11. What expiry duration is appropriate for production runners?
+12. Can FOC receipts be compactly represented and verified by a wrapper contract?
+13. What minimum data must be stored onchain to reconstruct user/object usage?
+14. What gas costs result from storing full receipts vs compact hashes/events?
 
 Deliverable:
 
@@ -617,9 +794,9 @@ Deliverable:
 - recommended v1 payment mode,
 - required SDK changes, if any.
 
-## 13. MVP Options
+## 14. MVP Options
 
-### 13.1 MVP Option 1: Fast path, EOA payer + onchain registry
+### 14.1 MVP Option 1: Fast path, EOA payer + onchain registry
 
 - Platform KMS/EOA pays FOC.
 - Contracts track users, objects, requests, and usage.
@@ -628,7 +805,7 @@ Deliverable:
 
 This is likely the fastest working product.
 
-### 13.2 MVP Option 2: Prepaid treasury + EOA executor
+### 14.2 MVP Option 2: Prepaid treasury + EOA executor
 
 - Users deposit USDFC into platform treasury.
 - Contract reserves/debits user balances.
@@ -637,7 +814,7 @@ This is likely the fastest working product.
 
 This gives stronger billing/accounting semantics.
 
-### 13.3 MVP Option 3: Smart-account payer
+### 14.3 MVP Option 3: Smart-account payer
 
 - Platform smart account pays FOC.
 - Contracts/policies control smart account execution.
@@ -645,14 +822,14 @@ This gives stronger billing/accounting semantics.
 
 This is more onchain-native but higher risk.
 
-### 13.4 MVP Option 4: Token Host generated demo app
+### 14.4 MVP Option 4: Token Host generated demo app
 
 - Use Token Host Builder to generate a Filecoin Calibration demo app.
 - Image uploads go through FOC runner.
 - Object/usage state is stored in generated contracts.
 - Good for public demo and iterative design.
 
-## 14. Security Considerations
+## 15. Security Considerations
 
 Required protections:
 
@@ -677,7 +854,7 @@ Open decisions:
 - whether user deposits are refundable immediately,
 - whether failed uploads reserve or release user funds automatically.
 
-## 15. Data Minimization
+## 16. Data Minimization
 
 Recommended onchain storage:
 
@@ -701,7 +878,7 @@ Avoid onchain:
 - API keys,
 - temporary upload URLs.
 
-## 16. Open Questions
+## 17. Open Questions
 
 1. Should the platform contract store full PieceCID strings or compact hashes?
 2. Should provider/dataset copy receipts be stored in contract storage or events only?
@@ -714,7 +891,7 @@ Avoid onchain:
 9. What is the minimum useful admin UI?
 10. What reconciliation guarantees are required for production?
 
-## 17. Proposed Phases
+## 18. Proposed Phases
 
 ### Phase 0: Research and compatibility
 
@@ -755,7 +932,7 @@ Avoid onchain:
 - Audit.
 - Documentation and reference platform integration.
 
-## 18. Success Criteria
+## 19. Success Criteria
 
 The buildout is successful when:
 
