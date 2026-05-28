@@ -1,13 +1,28 @@
 # foc-platform
 
-Reusable platform infrastructure for building products on top of Filecoin Onchain Cloud (FOC).
+`foc-platform` explores how a company can build its own product on top of Filecoin Onchain Cloud (FOC) without forcing every end user to understand wallets, USDFC deposits, datasets, providers, or payment rails.
 
-This repository is starting as a specification and planning workspace for a mostly-onchain platform stack where:
+The basic idea is simple:
 
-- platform users request storage through a platform API, UI, or generated app,
-- platform-specific smart contracts track authorization, object ownership, usage, quotas, and billing events,
-- a managed wallet, smart account, or contract treasury pays FOC for storage operations,
-- offchain infrastructure is minimized and used primarily for byte movement, Synapse SDK execution, relaying, and optional indexing.
+1. A platform user clicks “upload” or calls the platform’s API.
+2. The platform handles the FOC storage transaction for them.
+3. The platform pays FOC through a managed wallet, smart account, or contract treasury.
+4. Smart contracts record which user caused the action, what was stored, how much it costs, and how that user should be charged or quota-limited.
+
+In other words, this project is about making FOC easier to embed inside larger applications: SaaS platforms, creator tools, AI products, marketplaces, enterprise apps, and other systems where the platform wants to offer decentralized storage as a managed feature.
+
+## Why this exists
+
+A normal platform might solve this with a backend database: store user uploads in Postgres, track billing in Stripe, and keep FOC transaction receipts somewhere offchain.
+
+This repo investigates a more onchain-native approach:
+
+- platform-specific contracts track storage requests, object ownership, usage, quotas, and billing events,
+- offchain services are kept minimal and mostly stateless,
+- FOC execution still happens through tools like Synapse SDK,
+- the chain becomes the durable audit log and primary system of record.
+
+The goal is not to eliminate all offchain code. Files still need to be moved by an uploader/runner. The goal is to avoid each platform rebuilding a fragile custom accounting system around FOC from scratch.
 
 ## Current status
 
@@ -18,7 +33,7 @@ Draft specification only. See [`spec.md`](./spec.md).
 - [`@filoz/synapse-sdk`](https://github.com/FilOzone/synapse-sdk) — core SDK for FOC storage, payments, providers, datasets, and retrieval.
 - [`foc-cli`](https://github.com/FIL-Builders/foc-cli) — CLI and agent-facing operational tooling for FOC.
 - [`foc-storage-mcp`](https://github.com/FIL-Builders/foc-storage-mcp) — MCP tools for AI-agent FOC storage workflows.
-- Token Host Builder — candidate framework for generating onchain platform registry, usage ledger, UI, upload adapters, and sponsored transaction scaffolding.
+- [`tokenhost-builder`](https://github.com/tokenhost/tokenhost-builder/) — candidate framework for generating onchain platform registry, usage ledger, UI, upload adapters, and sponsored transaction scaffolding.
 
 ## Initial development direction
 
