@@ -81,7 +81,7 @@ Offchain components SHOULD avoid owning critical business state. Where offchain 
 
 ### 3.3 Execution/state separation
 
-Contracts SHOULD own policy and accounting. Offchain runners SHOULD perform execution that contracts cannot perform directly, especially:
+Contracts SHOULD own policy and accounting. Offchain coordinators SHOULD perform execution that contracts cannot perform directly, especially:
 
 - receiving file bytes,
 - uploading bytes to FOC providers,
@@ -103,7 +103,7 @@ Supported target modes MAY include:
 
 ### 3.5 Auditability over full trustlessness
 
-The initial product may rely on a trusted platform runner or operator. The important requirement is that user actions, platform decisions, and storage receipts are auditable onchain.
+The initial product may rely on a trusted platform coordinator or operator. The important requirement is that user actions, platform decisions, and storage receipts are auditable onchain.
 
 ### 3.6 No privacy illusions
 
@@ -118,7 +118,7 @@ Onchain metadata is public. The stack MUST NOT store secrets or sensitive PII on
 - Onchain object registry.
 - Onchain usage/accounting ledger.
 - Quotas, prepaid balances, or spend caps.
-- FOC upload runner scaffold.
+- FOC upload coordinator scaffold.
 - Synapse SDK integration.
 - Token Host Builder integration for generated contracts/UI.
 - Optional sponsored transaction / gasless UX.
@@ -131,7 +131,7 @@ Onchain metadata is public. The stack MUST NOT store secrets or sensitive PII on
 - Uploading bytes directly from smart contracts.
 - Building a full fiat invoicing product.
 - Guaranteed private storage metadata.
-- Decentralized runner marketplace.
+- Decentralized coordinator marketplace.
 - Replacing Synapse SDK.
 
 ## 5. Core Architecture
@@ -141,22 +141,22 @@ flowchart TD
   user["End User / App"]
   api["Platform UI / API / Relay"]
   contracts["Platform Contract Stack<br/>Policy + Accounting"]
-  runnerRole["FOC Execution Runner<br/>role, not fixed location"]
-  hosted["Platform-hosted Runner"]
-  local["User-local Runner"]
-  enterprise["Enterprise / BYO Runner"]
+  coordinatorRole["FOC Storage Coordinator<br/>role, not fixed location"]
+  hosted["Platform-hosted Coordinator"]
+  local["User-local Coordinator"]
+  enterprise["Enterprise / BYO Coordinator"]
   direct["Direct-to-FOC Upload<br/>Platform-delegated signing"]
   foc["FOC Providers + Contracts"]
   receipt["Finalize Receipt<br/>on Platform Stack"]
 
   user --> api
   api --> contracts
-  contracts -->|"UploadRequested events / jobs"| runnerRole
+  contracts -->|"UploadRequested events / jobs"| coordinatorRole
 
-  runnerRole -. "deployment option" .-> hosted
-  runnerRole -. "deployment option" .-> local
-  runnerRole -. "deployment option" .-> enterprise
-  runnerRole -. "data-plane option" .-> direct
+  coordinatorRole -. "deployment option" .-> hosted
+  coordinatorRole -. "deployment option" .-> local
+  coordinatorRole -. "deployment option" .-> enterprise
+  coordinatorRole -. "data-plane option" .-> direct
 
   hosted --> foc
   local --> foc
@@ -167,7 +167,7 @@ flowchart TD
   receipt --> contracts
 ```
 
-The runner is an execution role, not necessarily a platform-owned server. In v1 the default runner is expected to be platform-hosted, but the same contract model should support user-local, enterprise self-hosted, serverless, or direct-to-FOC data-plane variants. The platform contract remains the authoritative policy/accounting layer regardless of where the runner executes.
+The FOC Storage Coordinator is an execution and coordination role, not necessarily a platform-owned server. In v1 the default coordinator is expected to be platform-hosted, but the same contract model should support user-local, enterprise self-hosted, serverless, or direct-to-FOC data-plane variants. The platform contract remains the authoritative policy/accounting layer regardless of where the coordinator executes.
 
 ### 5.1 Execution role terminology
 
@@ -303,7 +303,7 @@ Potential rules:
 - per-period upload count,
 - per-user spend cap,
 - allowlisted users,
-- allowlisted runners,
+- allowlisted coordinators,
 - platform pause/circuit breaker.
 
 Policy may be:
@@ -457,7 +457,7 @@ For high-level use, `Synapse.create({ account: rootAccount, sessionKey })` valid
 
 ### 7.4 Why this matters for foc-platform
 
-The FOC session-key primitive is close to the runner authorization model needed by `foc-platform`.
+The FOC session-key primitive is close to the coordinator authorization model needed by `foc-platform`.
 
 It provides:
 
@@ -474,14 +474,14 @@ For platform use, the most direct pattern is:
 ```mermaid
 flowchart TD
   root["Platform root wallet / payer"]
-  registry["SessionKeyRegistry<br/>authorizes runner session key"]
-  runner["Runner uses session key<br/>with Synapse SDK"]
+  registry["SessionKeyRegistry<br/>authorizes coordinator session key"]
+  coordinator["Coordinator uses session key<br/>with Synapse SDK"]
   foc["FOC datasets + payment rails<br/>owned by platform root"]
   platform["Platform wrapper contracts<br/>record per-user attribution + usage"]
 
   root --> registry
-  registry --> runner
-  runner --> foc
+  registry --> coordinator
+  coordinator --> foc
   foc --> platform
 ```
 
@@ -489,21 +489,21 @@ This gives the platform a safer operational model than using the root wallet dir
 
 ### 7.5 Recommended v1 use of session keys
 
-For the first implementation, `foc-platform` SHOULD treat FOC session keys as the preferred authorization layer between the platform's FOC payer identity and the offchain runner.
+For the first implementation, `foc-platform` SHOULD treat FOC session keys as the preferred authorization layer between the platform's FOC payer identity and the offchain coordinator.
 
 Recommended v1 model:
 
 1. Platform has a FOC payer/root wallet, likely EOA/KMS initially.
-2. Platform generates one or more runner session keys.
+2. Platform generates one or more coordinator session keys.
 3. Platform root calls `SessionKeyRegistry.login(...)` with scoped FWSS permissions and a short expiry.
-4. Runner uses the session key with Synapse SDK for create dataset / add pieces / deletion operations.
+4. Coordinator uses the session key with Synapse SDK for create dataset / add pieces / deletion operations.
 5. Platform contract stack independently records upload request, user attribution, quota/billing impact, and final receipt.
-6. Platform root periodically refreshes or revokes runner session keys.
+6. Platform root periodically refreshes or revokes coordinator session keys.
 
 This separates three concerns:
 
 - FOC root identity and funds,
-- operational signing by runner keys,
+- operational signing by coordinator keys,
 - user-level policy/accounting in platform contracts.
 
 ### 7.6 Session keys vs platform user intents
@@ -513,8 +513,8 @@ FOC session keys and platform user intents solve different layers.
 | Layer | Primitive | Purpose |
 | --- | --- | --- |
 | User -> platform | Platform EIP-712 storage intent | User authorizes the platform action and billing/quota impact. |
-| Platform -> FOC runner | FOC session key | Platform root authorizes runner to perform FOC operations. |
-| FOC runner -> provider/FWSS | Synapse signed extraData | Provider/FWSS verifies operation authorization. |
+| Platform -> FOC coordinator | FOC session key | Platform root authorizes coordinator to perform FOC operations. |
+| FOC coordinator -> provider/FWSS | Synapse signed extraData | Provider/FWSS verifies operation authorization. |
 | Platform accounting | Platform contracts | Track object ownership, usage, quotas, charges, and receipts. |
 
 The platform SHOULD NOT treat a FOC session key as proof that an end user requested an upload. End-user authorization should remain in the platform contract stack.
@@ -535,7 +535,7 @@ Until these are tested, the safest architecture is:
 ```mermaid
 flowchart LR
   root["EOA / KMS<br/>platform root wallet"]
-  session["FOC session keys<br/>for runner execution"]
+  session["FOC session keys<br/>for coordinator execution"]
   accounting["Platform contracts<br/>for user accounting"]
 
   root --> session
@@ -625,9 +625,9 @@ Examples:
 - enterprise users use dedicated smart account,
 - advanced users bring their own FOC wallet.
 
-## 9. Upload Execution and Runner Models
+## 9. Upload Execution and Coordinator Models
 
-A runner is required for byte movement and FOC execution. Smart contracts can authorize, meter, and record storage operations, but they cannot move file bytes to providers. This section defines the default upload lifecycle and the runner/data-plane options the stack should support.
+A coordinator is required for byte movement and FOC execution. Smart contracts can authorize, meter, and record storage operations, but they cannot move file bytes to providers. This section defines the default upload lifecycle and the coordinator/data-plane options the stack should support.
 
 ### 9.1 Recommended upload lifecycle
 
@@ -638,15 +638,15 @@ flowchart TD
   user["User / App"]
   api["Platform UI / API"]
   request["Platform contract request"]
-  runner["FOC runner"]
+  coordinator["FOC Storage Coordinator"]
   foc["Synapse SDK / FOC providers / FOC contracts"]
   finalize["Platform contract finalization"]
   result["User / app sees stored object"]
 
   user --> api
   api --> request
-  request --> runner
-  runner --> foc
+  request --> coordinator
+  coordinator --> foc
   foc --> finalize
   finalize --> result
 ```
@@ -657,14 +657,14 @@ Before user uploads, the platform prepares its FOC execution authority:
 
 1. Platform has a FOC root wallet/payer.
 2. Platform deposits USDFC and approves required FOC services.
-3. Platform creates one or more runner session keys.
-4. Platform root authorizes runner session keys in `SessionKeyRegistry` for FWSS permissions:
+3. Platform creates one or more coordinator session keys.
+4. Platform root authorizes coordinator session keys in `SessionKeyRegistry` for FWSS permissions:
    - create dataset,
    - add pieces,
    - schedule removals,
    - delete dataset.
 
-This allows a runner to execute FOC storage operations without using the root wallet directly.
+This allows a coordinator to execute FOC storage operations without using the root wallet directly.
 
 #### Step 2: User requests upload
 
@@ -729,11 +729,11 @@ event UploadRequested(
 
 At this point, the platform has an onchain audit trail before storage execution.
 
-#### Step 4: Runner or upload coordinator picks up request
+#### Step 4: FOC Storage Coordinator picks up request
 
-A runner or upload coordinator watches `UploadRequested` events or receives an equivalent platform job.
+A FOC Storage Coordinator watches `UploadRequested` events or receives an equivalent platform job.
 
-Depending on runner/data-plane mode, it gets bytes from one of:
+Depending on coordinator/data-plane mode, it gets bytes from one of:
 
 - platform upload endpoint,
 - temporary object store,
@@ -743,24 +743,24 @@ Depending on runner/data-plane mode, it gets bytes from one of:
 - local file path in dev,
 - enterprise self-hosted source.
 
-The runner validates:
+The coordinator validates:
 
 - file size matches request,
 - content hash or PieceCID matches request where available,
 - request is still open,
-- runner is allowlisted,
+- coordinator is allowlisted,
 - FOC session key is unexpired,
 - cost and copy count remain within policy.
 
-#### Step 5: Runner executes FOC operation
+#### Step 5: Coordinator executes FOC operation
 
-The runner uses Synapse SDK with its FOC session key.
+The coordinator uses Synapse SDK with its FOC session key.
 
 Conceptually:
 
 ```ts
 const sessionKey = SessionKey.fromSecp256k1({
-  privateKey: runnerSessionPrivateKey,
+  privateKey: coordinatorSessionPrivateKey,
   root: platformRootAddress,
   chain,
 })
@@ -772,7 +772,7 @@ const synapse = Synapse.create({
 })
 ```
 
-Then the runner may:
+Then the coordinator may:
 
 1. create/reuse storage contexts and datasets,
 2. prepare/check funding if needed,
@@ -783,15 +783,15 @@ Then the runner may:
 
 FOC state exists under the platform root/payer, but the platform contract attributes it to the end user.
 
-#### Step 6: Runner finalizes on platform contract
+#### Step 6: Coordinator finalizes on platform contract
 
-Runner calls a function such as:
+Coordinator calls a function such as:
 
 ```solidity
 function finalizeUpload(
   uint256 objectId,
   UploadReceipt calldata receipt
-) external onlyRunner;
+) external onlyCoordinator;
 ```
 
 The receipt may include:
@@ -809,7 +809,7 @@ The receipt may include:
 
 The contract checks:
 
-- caller is authorized runner,
+- caller is authorized coordinator,
 - object is in expected state,
 - receipt is not already finalized,
 - size/copy count matches policy,
@@ -865,7 +865,7 @@ Example response:
 
 If upload fails:
 
-1. Runner calls `failUpload(objectId, reasonHash)`, or timeout allows user/platform to cancel.
+1. Coordinator calls `failUpload(objectId, reasonHash)`, or timeout allows user/platform to cancel.
 2. Contract marks status `Failed` or `Expired`.
 3. Reserved balance/quota is released or partially charged depending on policy.
 4. Event is emitted for auditability.
@@ -881,15 +881,15 @@ flowchart TD
   end
 
   subgraph platformAuth["Platform authorizes FOC execution"]
-    root["FOC root wallet"] --> registry["SessionKeyRegistry"] --> runnerKey["Runner session key"]
+    root["FOC root wallet"] --> registry["SessionKeyRegistry"] --> coordinatorKey["Coordinator session key"]
   end
 ```
 
-The first authorization proves the user requested the action and accepted platform policy/billing. The second authorization lets an operational runner perform FOC actions without exposing the platform root wallet.
+The first authorization proves the user requested the action and accepted platform policy/billing. The second authorization lets an operational coordinator perform FOC actions without exposing the platform root wallet.
 
-### 9.3 Runner responsibilities
+### 9.3 Coordinator responsibilities
 
-The runner MAY:
+The coordinator MAY:
 
 - watch `UploadRequested` events,
 - accept temporary upload bytes,
@@ -903,7 +903,7 @@ The runner MAY:
 - retry failed phases,
 - emit logs/metrics.
 
-The runner is not the same as the platform contract.
+The coordinator is not the same as the platform contract.
 
 The platform contract answers:
 
@@ -911,10 +911,10 @@ The platform contract answers:
 - who owns it?
 - who is charged?
 - what status is it in?
-- which runner may finalize?
+- which coordinator may finalize?
 - what receipt was recorded?
 
-The runner answers:
+The coordinator answers:
 
 - where are the bytes?
 - how should they be uploaded?
@@ -924,9 +924,9 @@ The runner answers:
 
 ### 9.4 Statelessness requirement
 
-The runner SHOULD be reconstructable from chain state.
+The coordinator SHOULD be reconstructable from chain state.
 
-Allowed runner state:
+Allowed coordinator state:
 
 - in-memory queue,
 - temporary file buffer,
@@ -937,7 +937,7 @@ Allowed runner state:
 
 Authoritative state SHOULD be in platform contracts and FOC contracts.
 
-### 9.5 Runner model A: platform-hosted runner
+### 9.5 Coordinator model A: platform-hosted coordinator
 
 This is the most natural v1 model for SaaS/platform companies.
 
@@ -945,17 +945,17 @@ This is the most natural v1 model for SaaS/platform companies.
 flowchart TD
   user["User browser / API client"]
   endpoint["Platform upload endpoint"]
-  runner["Platform-hosted FOC runner"]
+  coordinator["Platform-hosted FOC coordinator"]
   foc["Synapse SDK / FOC"]
   finalize["Platform contract finalize"]
 
   user --> endpoint
-  endpoint --> runner
-  runner --> foc
+  endpoint --> coordinator
+  coordinator --> foc
   foc --> finalize
 ```
 
-The platform maintains the runner as backend infrastructure.
+The platform maintains the coordinator as backend infrastructure.
 
 Pros:
 
@@ -970,15 +970,15 @@ Cons:
 
 - platform temporarily handles file bytes,
 - platform pays bandwidth/compute,
-- runner is trusted to report correct receipts unless verification/challenge logic is added,
+- coordinator is trusted to report correct receipts unless verification/challenge logic is added,
 - more infrastructure burden.
 
-Recommended v1 hosted-runner flow:
+Recommended v1 hosted-coordinator flow:
 
 ```mermaid
 sequenceDiagram
   participant U as User
-  participant R as Platform-hosted runner
+  participant R as Platform-hosted coordinator
   participant C as Platform contract
   participant F as FOC / Synapse
   participant A as Platform API / contract reads
@@ -992,40 +992,40 @@ sequenceDiagram
   U->>A: Read stored object result
 ```
 
-### 9.6 Runner model B: user-local runner
+### 9.6 Coordinator model B: user-local coordinator
 
-The runner runs on the user's machine, browser, desktop app, CLI, or agent.
+The coordinator runs on the user's machine, browser, desktop app, CLI, or agent.
 
 ```mermaid
 flowchart TD
-  runner["User-local runner"]
+  coordinator["User-local coordinator"]
   foc["FOC via Synapse SDK"]
   finalize["Platform contract finalize"]
 
-  runner --> foc
+  coordinator --> foc
   foc --> finalize
 ```
 
 Two variants should remain possible:
 
-#### B1. User-local runner using platform session key
+#### B1. User-local coordinator using platform session key
 
-This is generally unsafe for public users because the platform would be distributing FOC runner credentials.
+This is generally unsafe for public users because the platform would be distributing FOC coordinator credentials.
 
-It is NOT RECOMMENDED except for trusted enterprise/on-prem agents where the runner environment is controlled and contractual trust exists.
+It is NOT RECOMMENDED except for trusted enterprise/on-prem agents where the coordinator environment is controlled and contractual trust exists.
 
-#### B2. User-local runner using user's own FOC wallet
+#### B2. User-local coordinator using user's own FOC wallet
 
 The user pays or signs FOC operations directly.
 
 ```mermaid
 flowchart TD
   wallet["User wallet pays FOC"]
-  runner["Local runner uploads"]
+  coordinator["Local coordinator uploads"]
   platform["Platform contract<br/>records attribution"]
 
-  wallet --> runner
-  runner --> platform
+  wallet --> coordinator
+  coordinator --> platform
 ```
 
 This is more decentralized but worse UX and no longer the primary “platform-managed wallet pays FOC” model.
@@ -1045,44 +1045,44 @@ Cons:
 - harder support/retry/reconciliation,
 - less suitable for ordinary SaaS users.
 
-### 9.7 Runner model C: hybrid / bring-your-own runner
+### 9.7 Coordinator model C: hybrid / bring-your-own coordinator
 
-The platform MAY support allowlisted runners.
+The platform MAY support allowlisted coordinators.
 
 ```mermaid
 flowchart TD
   contract["Platform contract"]
-  runners["Allowlisted runners<br/>A, B, C"]
-  finalize["Each runner can finalize<br/>authorized uploads"]
+  coordinators["Allowlisted coordinators<br/>A, B, C"]
+  finalize["Each coordinator can finalize<br/>authorized uploads"]
 
-  contract --> runners
-  runners --> finalize
+  contract --> coordinators
+  coordinators --> finalize
 ```
 
-Possible runner types:
+Possible coordinator types:
 
-- platform-hosted runner,
-- enterprise customer self-hosted runner,
-- local dev runner,
-- AI-agent runner,
-- serverless worker runner,
-- marketplace runner in future.
+- platform-hosted coordinator,
+- enterprise customer self-hosted coordinator,
+- local dev coordinator,
+- AI-agent coordinator,
+- serverless worker coordinator,
+- marketplace coordinator in future.
 
 The contract may store:
 
 ```solidity
-mapping(address => bool) public approvedRunners;
-mapping(address => RunnerPolicy) public runnerPolicies;
+mapping(address => bool) public approvedCoordinators;
+mapping(address => CoordinatorPolicy) public coordinatorPolicies;
 ```
 
 A request may specify:
 
 ```solidity
-address preferredRunner;
-bytes32 runnerMode;
+address preferredCoordinator;
+bytes32 coordinatorMode;
 ```
 
-or the platform may assign a runner offchain.
+or the platform may assign a coordinator offchain.
 
 Pros:
 
@@ -1093,18 +1093,18 @@ Pros:
 Cons:
 
 - more complex,
-- requires runner authorization, policies, revocation, and audit,
+- requires coordinator authorization, policies, revocation, and audit,
 - requires clear responsibility for failures.
 
 Recommended direction:
 
 ```mermaid
 flowchart TD
-  default["v1 default"] --> defaultStack["Platform-hosted runner<br/>+ platform FOC root wallet<br/>+ FOC session key"]
-  dev["v1 optional / dev"] --> local["Local runner for testing"]
-  future["Future"] --> enterprise["Enterprise self-hosted runner"]
+  default["v1 default"] --> defaultStack["Platform-hosted coordinator<br/>+ platform FOC root wallet<br/>+ FOC session key"]
+  dev["v1 optional / dev"] --> local["Local coordinator for testing"]
+  future["Future"] --> enterprise["Enterprise self-hosted coordinator"]
   future --> byow["Bring-your-own FOC wallet"]
-  future --> network["Decentralized / allowlisted runner network"]
+  future --> network["Decentralized / allowlisted coordinator network"]
 ```
 
 ### 9.8 Direct-to-FOC upload with platform-delegated signing
@@ -1196,7 +1196,7 @@ The platform does not proxy the file.
 
 #### Step 4: Platform signs the FOC commit
 
-The browser, runner, or provider needs FOC `extraData` authorizing the piece to be added to a dataset.
+The browser, coordinator, or provider needs FOC `extraData` authorizing the piece to be added to a dataset.
 
 The platform keeps its root wallet/session key private and signs only the specific operation:
 
@@ -1216,7 +1216,7 @@ flowchart TD
   sig --> expiry
 ```
 
-The platform SHOULD sign using a FOC session key rather than the root wallet. The platform MUST NOT give the user the platform wallet key or general runner session key. It only returns a narrow operation-specific signature or arranges for the runner to submit it.
+The platform SHOULD sign using a FOC session key rather than the root wallet. The platform MUST NOT give the user the platform wallet key or general coordinator session key. It only returns a narrow operation-specific signature or arranges for the coordinator to submit it.
 
 #### Step 5: Commit happens
 
@@ -1232,17 +1232,17 @@ flowchart LR
 
 The browser coordinates the flow, but cannot change what the platform signed.
 
-**Variant B: platform runner submits commit**
+**Variant B: platform coordinator submits commit**
 
 ```mermaid
 flowchart TD
   browser["Browser"] --> store["Provider stores bytes"]
-  runner["Platform runner"] --> add["Provider addPieces(extraData)"]
+  coordinator["Platform-hosted coordinator"] --> add["Provider addPieces(extraData)"]
   store --> add
   add --> contracts["FOC contracts"]
 ```
 
-The platform still never sees file bytes. The runner only commits the already-uploaded PieceCID. This is likely the safer v1 direct-upload model.
+The platform still never sees file bytes. The coordinator only commits the already-uploaded PieceCID. This is likely the safer v1 direct-upload model.
 
 #### Step 6: Platform finalizes receipt
 
@@ -1259,7 +1259,7 @@ Once FOC confirms the piece, platform records:
 
 Either:
 
-- platform runner calls `finalizeUpload`, or
+- platform coordinator calls `finalizeUpload`, or
 - user submits receipt and platform verifies or accepts it under policy.
 
 Recommended direct-upload v1:
@@ -1267,9 +1267,9 @@ Recommended direct-upload v1:
 ```mermaid
 flowchart TD
   browser["Browser uploads bytes<br/>directly to FOC provider"]
-  runner["Platform runner / signing service<br/>handles commit + finalization"]
+  coordinator["Platform-hosted coordinator / signing service<br/>handles commit + finalization"]
 
-  browser --> runner
+  browser --> coordinator
 ```
 
 This gives the platform less byte-handling responsibility while preserving platform control over wallet/signing/accounting.
@@ -1284,17 +1284,17 @@ Caveats to test:
 - retry/failure behavior when upload succeeds but commit fails,
 - direct upload can be bound to an onchain `objectId` and cannot be replayed to spend platform funds unexpectedly.
 
-### 9.9 Runner trust model
+### 9.9 Coordinator trust model
 
 Open options:
 
-1. single platform-operated runner,
-2. multiple allowlisted runners,
-3. runner staking/slashing later,
+1. single platform-operated coordinator,
+2. multiple allowlisted coordinators,
+3. coordinator staking/slashing later,
 4. user-submitted finalization with verifiable FOC receipts,
 5. optimistic finalization with challenge window.
 
-MVP may use a trusted runner with admin allowlisting.
+MVP may use a trusted coordinator with admin allowlisting.
 
 ### 9.10 Finalization receipt design
 
@@ -1303,7 +1303,7 @@ Open receipt design:
 - store all copy receipts onchain,
 - store compact hashes onchain and full receipt in event,
 - verify FOC contract events onchain if feasible,
-- rely on allowlisted runner assertion for MVP.
+- rely on allowlisted coordinator assertion for MVP.
 
 ## 10. Token Host Builder Integration
 
@@ -1325,7 +1325,7 @@ Potential schema surface:
     "focPlatform": {
       "paymentMode": "platformWallet | smartAccount | contractTreasury | userPays | hybrid",
       "billingMode": "prepaid | credit | quotaOnly | hybrid",
-      "runnerMode": "local | remote | netlify | worker | sdk",
+      "coordinatorMode": "local | remote | netlify | worker | sdk",
       "defaultCopies": 2,
       "allowCDN": true
     }
@@ -1343,7 +1343,7 @@ Token Host MAY generate base collections/contracts for:
 - `UsageEvent`,
 - `DatasetRecord`,
 - `ProviderCopy`,
-- `Runner`,
+- `Coordinator`,
 - `BillingPlan`.
 
 ### 10.3 Generated indexes
@@ -1365,7 +1365,7 @@ Token Host MAY emit:
 - user object browser,
 - upload form,
 - admin usage dashboard,
-- runner status view,
+- coordinator status view,
 - treasury balance view,
 - FOC account runway view,
 - object detail with PieceCID/provider/dataset receipts.
@@ -1374,13 +1374,13 @@ Token Host MAY emit:
 
 Current Token Host upload adapters can prototype FOC upload via `foc-cli`. Production SHOULD prefer direct Synapse SDK integration.
 
-Potential runner modes:
+Potential coordinator modes:
 
 1. `foc-process`: shell out to `foc-cli` for quick prototype.
-2. `foc-sdk`: direct Synapse SDK runner.
+2. `foc-sdk`: direct Synapse SDK coordinator.
 3. `remote`: platform-hosted upload service.
 4. `worker`: background worker / serverless queue.
-5. `browser-assisted`: client uploads bytes, runner finalizes.
+5. `browser-assisted`: client uploads bytes, coordinator finalizes.
 
 ## 11. Synapse SDK Requirements / Opportunities
 
@@ -1394,10 +1394,10 @@ Potential SDK support needed:
 - KMS signer examples,
 - dataset metadata strategy for multi-tenant platforms,
 - receipt/reconciliation helpers,
-- optional runner-friendly APIs for split upload phases,
-- documented session-key runner pattern,
+- optional coordinator-friendly APIs for split upload phases,
+- documented session-key coordinator pattern,
 - session-key lifecycle helpers for backend services,
-- short-lived runner key examples,
+- short-lived coordinator key examples,
 - clear description of which operations require FWSS permissions and which require payment/operator approvals.
 
 ## 12. foc-cli and foc-storage-mcp Roles
@@ -1434,7 +1434,7 @@ Potential package split:
 
 - `@fil-b/foc-storage-core`,
 - `@fil-b/foc-storage-mcp`,
-- `@fil-b/foc-platform-runner`.
+- `@fil-b/foc-platform-coordinator`.
 
 ## 13. Compatibility Spike Requirements
 
@@ -1451,8 +1451,8 @@ Required questions:
 7. Can Synapse session keys be rooted in a smart account or contract wallet?
 8. Can an EOA session key sign for a contract root/payer if the contract root authorized it through `SessionKeyRegistry.login(...)`?
 9. Does FWSS validate session-key authorization based only on the recovered signer plus root/payer address, or are there implicit EOA assumptions about the root?
-10. Does `loginAndFund` matter for runner session keys on Filecoin, or should runner keys remain unfunded except for gas edge cases?
-11. What expiry duration is appropriate for production runners?
+10. Does `loginAndFund` matter for coordinator session keys on Filecoin, or should coordinator keys remain unfunded except for gas edge cases?
+11. What expiry duration is appropriate for production coordinators?
 12. Can FOC receipts be compactly represented and verified by a wrapper contract?
 13. What minimum data must be stored onchain to reconstruct user/object usage?
 14. What gas costs result from storing full receipts vs compact hashes/events?
@@ -1470,7 +1470,7 @@ Deliverable:
 
 - Platform KMS/EOA pays FOC.
 - Contracts track users, objects, requests, and usage.
-- Runner is trusted and allowlisted.
+- Coordinator is trusted and allowlisted.
 - Token Host generates registry/usage UI.
 
 This is likely the fastest working product.
@@ -1495,7 +1495,7 @@ This is more onchain-native but higher risk.
 ### 14.4 MVP Option 4: Token Host generated demo app
 
 - Use Token Host Builder to generate a Filecoin Calibration demo app.
-- Image uploads go through FOC runner.
+- Image uploads go through FOC coordinator.
 - Object/usage state is stored in generated contracts.
 - Good for public demo and iterative design.
 
@@ -1506,11 +1506,11 @@ Required protections:
 - nonce/replay protection for intents,
 - upload size limits,
 - content hash validation,
-- runner allowlist or proof model,
+- coordinator allowlist or proof model,
 - user quota checks,
 - platform pause switch,
 - admin role separation,
-- private key isolation for any EOA/KMS runner,
+- private key isolation for any EOA/KMS coordinator,
 - no sensitive PII in onchain metadata,
 - idempotent finalization,
 - duplicate PieceCID/object handling policy,
@@ -1520,7 +1520,7 @@ Open decisions:
 
 - whether finalization needs challenge period,
 - whether receipts must be independently verifiable onchain,
-- whether runners stake collateral,
+- whether coordinators stake collateral,
 - whether user deposits are refundable immediately,
 - whether failed uploads reserve or release user funds automatically.
 
@@ -1573,14 +1573,14 @@ Avoid onchain:
 
 - Generate or hand-write simple platform registry.
 - Add upload request/finalize flow.
-- Build trusted runner with Synapse SDK.
+- Build trusted coordinator with Synapse SDK.
 - Store object and usage state onchain.
 
 ### Phase 2: Token Host Builder integration
 
 - Add schema extension or example schema.
 - Generate contracts/UI for platform storage objects.
-- Integrate upload adapter/runner.
+- Integrate upload adapter/coordinator.
 - Add Filecoin Calibration deployment path.
 
 ### Phase 3: Billing/treasury modes
@@ -1598,7 +1598,7 @@ Avoid onchain:
 
 - KMS/HSM support.
 - Monitoring and alerts.
-- Runner scaling.
+- Coordinator scaling.
 - Audit.
 - Documentation and reference platform integration.
 
@@ -1608,7 +1608,7 @@ The buildout is successful when:
 
 1. A platform can offer storage to users without designing its own FOC billing/accounting backend from scratch.
 2. User object ownership and usage are reconstructable from onchain state/events.
-3. Offchain runner state is not authoritative.
+3. Offchain coordinator state is not authoritative.
 4. Uploads can be attributed to users and charged or quota-enforced.
 5. FOC payment/runway health is observable.
 6. The stack supports at least one working managed-wallet mode on Calibration.
