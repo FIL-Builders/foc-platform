@@ -140,18 +140,34 @@ Onchain metadata is public. The stack MUST NOT store secrets or sensitive PII on
 flowchart TD
   user["End User / App"]
   api["Platform UI / API / Relay"]
-  contracts["Platform Contract Stack"]
-  runner["FOC Runner<br/>Synapse SDK"]
-  foc["FOC Contracts + Providers"]
-  finalize["Finalize Receipt<br/>on Platform Stack"]
+  contracts["Platform Contract Stack<br/>Policy + Accounting"]
+  runnerRole["FOC Execution Runner<br/>role, not fixed location"]
+  hosted["Platform-hosted Runner"]
+  local["User-local Runner"]
+  enterprise["Enterprise / BYO Runner"]
+  direct["Direct-to-FOC Upload<br/>Platform-delegated signing"]
+  foc["FOC Providers + Contracts"]
+  receipt["Finalize Receipt<br/>on Platform Stack"]
 
   user --> api
   api --> contracts
-  contracts -->|"events / requests"| runner
-  runner --> foc
-  foc --> finalize
-  finalize --> contracts
+  contracts -->|"UploadRequested events / jobs"| runnerRole
+
+  runnerRole -. "deployment option" .-> hosted
+  runnerRole -. "deployment option" .-> local
+  runnerRole -. "deployment option" .-> enterprise
+  runnerRole -. "data-plane option" .-> direct
+
+  hosted --> foc
+  local --> foc
+  enterprise --> foc
+  direct --> foc
+
+  foc --> receipt
+  receipt --> contracts
 ```
+
+The runner is an execution role, not necessarily a platform-owned server. In v1 the default runner is expected to be platform-hosted, but the same contract model should support user-local, enterprise self-hosted, serverless, or direct-to-FOC data-plane variants. The platform contract remains the authoritative policy/accounting layer regardless of where the runner executes.
 
 ## 6. Platform Contract Stack
 
