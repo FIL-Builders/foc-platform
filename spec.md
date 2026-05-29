@@ -342,8 +342,11 @@ A FOC session key is an ephemeral signing key authorized by a root wallet throug
 
 The registry stores grants of the form:
 
-```text
-root identity address -> session signer address -> permission bytes32 -> expiry timestamp
+```mermaid
+flowchart LR
+  root["Root identity address"] --> signer["Session signer address"]
+  signer --> permission["Permission bytes32"]
+  permission --> expiry["Expiry timestamp"]
 ```
 
 The public registry surface includes:
@@ -436,12 +439,18 @@ It provides:
 
 For platform use, the most direct pattern is:
 
-```text
-platform root wallet / payer
-  -> authorizes runner session key in SessionKeyRegistry
-  -> runner uses session key with Synapse SDK
-  -> FOC datasets and payment rails remain owned by platform root
-  -> platform wrapper contracts record per-user attribution and usage
+```mermaid
+flowchart TD
+  root["Platform root wallet / payer"]
+  registry["SessionKeyRegistry<br/>authorizes runner session key"]
+  runner["Runner uses session key<br/>with Synapse SDK"]
+  foc["FOC datasets + payment rails<br/>owned by platform root"]
+  platform["Platform wrapper contracts<br/>record per-user attribution + usage"]
+
+  root --> registry
+  registry --> runner
+  runner --> foc
+  foc --> platform
 ```
 
 This gives the platform a safer operational model than using the root wallet directly for all uploads.
@@ -491,8 +500,14 @@ Open compatibility questions remain:
 
 Until these are tested, the safest architecture is:
 
-```text
-EOA/KMS platform root wallet + FOC session keys for runner execution + platform contracts for user accounting
+```mermaid
+flowchart LR
+  root["EOA / KMS<br/>platform root wallet"]
+  session["FOC session keys<br/>for runner execution"]
+  accounting["Platform contracts<br/>for user accounting"]
+
+  root --> session
+  session --> accounting
 ```
 
 ### 7.8 Spec implication
@@ -586,14 +601,22 @@ A runner is required for byte movement and FOC execution. Smart contracts can au
 
 The recommended platform-managed upload flow is:
 
-```text
-user/app
-  -> platform UI/API
-  -> platform contract request
-  -> FOC runner
-  -> Synapse SDK / FOC providers / FOC contracts
-  -> platform contract finalization
-  -> user/app sees stored object
+```mermaid
+flowchart TD
+  user["User / App"]
+  api["Platform UI / API"]
+  request["Platform contract request"]
+  runner["FOC runner"]
+  foc["Synapse SDK / FOC providers / FOC contracts"]
+  finalize["Platform contract finalization"]
+  result["User / app sees stored object"]
+
+  user --> api
+  api --> request
+  request --> runner
+  runner --> foc
+  foc --> finalize
+  finalize --> result
 ```
 
 #### Step 1: Platform prepares FOC authority
@@ -819,12 +842,15 @@ If upload fails:
 
 The cleanest architecture has two separate authorization flows:
 
-```text
-User authorizes platform action:
-  user intent -> platform contract
+```mermaid
+flowchart TD
+  subgraph userAuth["User authorizes platform action"]
+    intent["User intent"] --> platformContract["Platform contract"]
+  end
 
-Platform authorizes FOC execution:
-  FOC root wallet -> SessionKeyRegistry -> runner session key
+  subgraph platformAuth["Platform authorizes FOC execution"]
+    root["FOC root wallet"] --> registry["SessionKeyRegistry"] --> runnerKey["Runner session key"]
+  end
 ```
 
 The first authorization proves the user requested the action and accepted platform policy/billing. The second authorization lets an operational runner perform FOC actions without exposing the platform root wallet.
@@ -883,12 +909,18 @@ Authoritative state SHOULD be in platform contracts and FOC contracts.
 
 This is the most natural v1 model for SaaS/platform companies.
 
-```text
-user browser/API client
-  -> platform upload endpoint
-  -> platform-hosted FOC runner
-  -> Synapse SDK / FOC
-  -> platform contract finalize
+```mermaid
+flowchart TD
+  user["User browser / API client"]
+  endpoint["Platform upload endpoint"]
+  runner["Platform-hosted FOC runner"]
+  foc["Synapse SDK / FOC"]
+  finalize["Platform contract finalize"]
+
+  user --> endpoint
+  endpoint --> runner
+  runner --> foc
+  foc --> finalize
 ```
 
 The platform maintains the runner as backend infrastructure.
@@ -911,24 +943,35 @@ Cons:
 
 Recommended v1 hosted-runner flow:
 
-```text
-1. User uploads bytes to platform-hosted runner.
-2. Platform contract records UploadRequested.
-3. Runner sees request and validates bytes.
-4. Runner uses FOC session key to upload through Synapse.
-5. Runner gets PieceCID/dataset/provider receipt.
-6. Runner finalizes UploadFinalized on platform contract.
-7. User reads result from platform API/contract.
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant R as Platform-hosted runner
+  participant C as Platform contract
+  participant F as FOC / Synapse
+  participant A as Platform API / contract reads
+
+  U->>R: Upload bytes
+  C-->>R: UploadRequested event/job
+  R->>R: Validate bytes and request
+  R->>F: Upload with FOC session key
+  F-->>R: PieceCID / dataset / provider receipt
+  R->>C: UploadFinalized receipt
+  U->>A: Read stored object result
 ```
 
 ### 9.6 Runner model B: user-local runner
 
 The runner runs on the user's machine, browser, desktop app, CLI, or agent.
 
-```text
-user local runner
-  -> FOC via Synapse SDK
-  -> platform contract finalize
+```mermaid
+flowchart TD
+  runner["User-local runner"]
+  foc["FOC via Synapse SDK"]
+  finalize["Platform contract finalize"]
+
+  runner --> foc
+  foc --> finalize
 ```
 
 Two variants should remain possible:
@@ -943,10 +986,14 @@ It is NOT RECOMMENDED except for trusted enterprise/on-prem agents where the run
 
 The user pays or signs FOC operations directly.
 
-```text
-user wallet pays FOC
-  -> local runner uploads
-  -> platform contract records attribution
+```mermaid
+flowchart TD
+  wallet["User wallet pays FOC"]
+  runner["Local runner uploads"]
+  platform["Platform contract<br/>records attribution"]
+
+  wallet --> runner
+  runner --> platform
 ```
 
 This is more decentralized but worse UX and no longer the primary “platform-managed wallet pays FOC” model.
@@ -970,10 +1017,14 @@ Cons:
 
 The platform MAY support allowlisted runners.
 
-```text
-platform contract
-  -> allows runner A, B, C
-  -> each runner can finalize certain uploads
+```mermaid
+flowchart TD
+  contract["Platform contract"]
+  runners["Allowlisted runners<br/>A, B, C"]
+  finalize["Each runner can finalize<br/>authorized uploads"]
+
+  contract --> runners
+  runners --> finalize
 ```
 
 Possible runner types:
@@ -1015,17 +1066,13 @@ Cons:
 
 Recommended direction:
 
-```text
-v1 default:
-  platform-hosted runner + platform FOC root wallet + FOC session key
-
-v1 optional/dev:
-  local runner for testing
-
-future:
-  enterprise self-hosted runner
-  bring-your-own FOC wallet
-  decentralized/allowlisted runner network
+```mermaid
+flowchart TD
+  default["v1 default"] --> defaultStack["Platform-hosted runner<br/>+ platform FOC root wallet<br/>+ FOC session key"]
+  dev["v1 optional / dev"] --> local["Local runner for testing"]
+  future["Future"] --> enterprise["Enterprise self-hosted runner"]
+  future --> byow["Bring-your-own FOC wallet"]
+  future --> network["Decentralized / allowlisted runner network"]
 ```
 
 ### 9.8 Direct-to-FOC upload with platform-delegated signing
@@ -1036,13 +1083,20 @@ In this model, the platform never receives file bytes, but it still controls aut
 
 High-level flow:
 
-```text
-user browser/app
-  -> asks platform for upload authorization
-  -> uploads bytes directly to FOC provider
-  -> platform signs/authorizes FOC commit
-  -> FOC provider/FWSS commits piece
-  -> platform contract records final receipt
+```mermaid
+flowchart TD
+  user["User browser / app"]
+  auth["Ask platform for upload authorization"]
+  direct["Upload bytes directly<br/>to FOC provider"]
+  sign["Platform signs / authorizes<br/>FOC commit"]
+  commit["FOC provider / FWSS<br/>commits piece"]
+  receipt["Platform contract<br/>records final receipt"]
+
+  user --> auth
+  auth --> direct
+  direct --> sign
+  sign --> commit
+  commit --> receipt
 ```
 
 #### Step 1: User requests an upload ticket
@@ -1101,8 +1155,9 @@ Example response:
 
 The user/browser uploads to the provider's PDP API directly:
 
-```text
-browser -> FOC provider /pdp/piece
+```mermaid
+flowchart LR
+  browser["Browser"] --> provider["FOC provider<br/>/pdp/piece"]
 ```
 
 The platform does not proxy the file.
@@ -1113,12 +1168,20 @@ The browser, runner, or provider needs FOC `extraData` authorizing the piece to 
 
 The platform keeps its root wallet/session key private and signs only the specific operation:
 
-```text
-add this PieceCID
-to this dataset
-for this payer/root
-with this metadata
-before this expiry
+```mermaid
+flowchart TD
+  sig["Operation-specific signature"]
+  piece["Add this PieceCID"]
+  dataset["To this dataset"]
+  payer["For this payer / root"]
+  metadata["With this metadata"]
+  expiry["Before this expiry"]
+
+  sig --> piece
+  sig --> dataset
+  sig --> payer
+  sig --> metadata
+  sig --> expiry
 ```
 
 The platform SHOULD sign using a FOC session key rather than the root wallet. The platform MUST NOT give the user the platform wallet key or general runner session key. It only returns a narrow operation-specific signature or arranges for the runner to submit it.
@@ -1129,19 +1192,22 @@ Two variants should remain possible:
 
 **Variant A: browser submits commit to provider**
 
-```text
-browser -> provider addPieces(extraData)
-provider -> FOC contracts
+```mermaid
+flowchart LR
+  browser["Browser"] --> add["Provider addPieces(extraData)"]
+  add --> contracts["FOC contracts"]
 ```
 
 The browser coordinates the flow, but cannot change what the platform signed.
 
 **Variant B: platform runner submits commit**
 
-```text
-browser -> provider stores bytes
-platform runner -> provider addPieces(extraData)
-provider -> FOC contracts
+```mermaid
+flowchart TD
+  browser["Browser"] --> store["Provider stores bytes"]
+  runner["Platform runner"] --> add["Provider addPieces(extraData)"]
+  store --> add
+  add --> contracts["FOC contracts"]
 ```
 
 The platform still never sees file bytes. The runner only commits the already-uploaded PieceCID. This is likely the safer v1 direct-upload model.
@@ -1166,9 +1232,12 @@ Either:
 
 Recommended direct-upload v1:
 
-```text
-browser uploads bytes directly to FOC provider
-platform runner/signing service handles commit + finalization
+```mermaid
+flowchart TD
+  browser["Browser uploads bytes<br/>directly to FOC provider"]
+  runner["Platform runner / signing service<br/>handles commit + finalization"]
+
+  browser --> runner
 ```
 
 This gives the platform less byte-handling responsibility while preserving platform control over wallet/signing/accounting.
