@@ -24,29 +24,6 @@ The target model is:
 
 This spec intentionally keeps multiple implementation options open. Future revisions may select a narrower architecture after compatibility testing and product validation.
 
-### 1.1 Option-preserving draft posture
-
-This document is an early first draft. It is intended to preserve the major product and architecture options discussed so that future specification edits, compatibility spikes, and prototypes can decide which options to keep, combine, or remove.
-
-The following decision areas SHOULD remain open until explicitly resolved:
-
-| Decision area | Options intentionally preserved |
-| --- | --- |
-| FOC payer / wallet model | Platform EOA/KMS wallet, platform smart account, contract treasury, user-pays wallet, hybrid per tenant/deployment. |
-| FOC delegation model | Root wallet direct signing, short-lived FOC session keys, operation-specific commit signatures, future smart-account or contract-wallet delegation. |
-| User authorization model | User sends platform-contract transaction directly, user signs EIP-712 platform storage intent, platform relays after normal auth/API key, sponsored/gasless transaction flow. |
-| Billing/accounting model | Prepaid user balances, credit/debt ledger, quota-only metering, token-gated/subscription rights, hybrid. |
-| Coordinator placement | Platform-hosted coordinator, user-local coordinator, enterprise/BYO coordinator, serverless/worker coordinator, AI-agent/local-dev coordinator. |
-| Data plane | Platform upload endpoint, temporary object store, signed URL, browser direct-to-FOC provider upload, local file path, enterprise self-hosted source. |
-| Control plane | Platform-controlled FOC signing and commit, browser-assisted commit with platform-signed extraData, coordinator-submitted commit, user-submitted receipt. |
-| Finalization / receipt trust | Trusted allowlisted coordinator, user-submitted finalization, compact receipt hashes plus event data, full onchain receipt storage, onchain verification if feasible, optimistic finalization with challenge window. |
-| Contract implementation | Hand-written MVP contracts, Token Host-generated CRUD/ledger contracts, custom Token Host FOC module, modular multi-contract stack, single-contract MVP. |
-| Indexing / query model | Onchain state and events as source of truth, optional offchain indexer/cache for UX, no offchain state required for correctness. |
-| Upload API behavior | Synchronous API from the user perspective, async event/job flow, polling, webhooks/callbacks, direct contract reads. |
-| Deployment path | Calibration demo first, platform-hosted SaaS reference implementation, enterprise self-hosted variant, future decentralized/allowlisted coordinator network. |
-
-Unless a later section explicitly marks a choice as REQUIRED or RECOMMENDED for a particular phase, option language in this document should be read as exploratory rather than final product commitment.
-
 ## 2. Product Goal
 
 Build a reusable **FOC Platform Stack** for companies that want to build higher-level products on Filecoin Onchain Cloud.
