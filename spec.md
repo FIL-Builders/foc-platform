@@ -1550,16 +1550,43 @@ Avoid onchain:
 
 ## 17. Open Questions
 
+This draft intentionally leaves several choices unresolved. The body of the spec describes the viable shapes; this section names the decision gates that should be closed by compatibility work, prototypes, and product feedback.
+
+### 17.1 Payment, custody, and delegation
+
+1. What should the first supported FOC payer be: platform EOA/KMS, platform smart account, contract treasury, user-pays wallet, or a hybrid model?
+2. Should v1 always use FOC session keys for coordinator execution, or should direct root signing remain a supported operator mode?
+3. Can a smart account or contract wallet safely be the root identity for FOC session keys and payment rails?
+4. Should a platform-specific contract custody USDFC in v1, or only record usage while an EOA/KMS wallet funds FOC?
+5. How much of FOC payment rail state should be mirrored in the platform contract?
+
+### 17.2 User authorization and billing semantics
+
+1. Should users authorize uploads by sending platform-contract transactions, signing EIP-712 storage intents, authenticating to a normal platform API, or using a sponsored/gasless relay flow?
+2. Should user billing be prepaid, credit-based, quota-only, token-gated/subscription-based, or hybrid?
+3. When should user balances or quotas be reserved and released: request time, byte upload time, FOC commit time, or final receipt time?
+4. What cost-slippage and max-cost guarantees should the user receive before the platform spends FOC funds?
+
+### 17.3 Coordinator placement and data plane
+
+1. Should the first product default be a platform-hosted coordinator, direct-to-FOC browser upload with platform-delegated signing, or both?
+2. Which coordinator roles can safely run in the browser or user-local environment, and which must remain platform-controlled?
+3. What enterprise/BYO coordinator model is worth preserving in v1 interfaces even if not implemented immediately?
+4. Should uploads be synchronous from the API perspective, async/event-driven by default, or support both with polling/webhook patterns?
+
+### 17.4 Receipts, verification, and reconciliation
+
 1. Should the platform contract store full PieceCID strings or compact hashes?
-2. Should provider/dataset copy receipts be stored in contract storage or events only?
-3. Should user billing be prepaid, credit-based, quota-only, or hybrid?
-4. Should platform contracts custody USDFC in v1?
-5. Should FOC payer be EOA/KMS, smart account, or contract treasury?
-6. How much of FOC payment rail state should be mirrored in the platform contract?
-7. Should Token Host generate generic CRUD contracts or a custom hand-written FOC module?
-8. Should uploads be synchronous from API perspective or async event-driven by default?
-9. What is the minimum useful admin UI?
-10. What reconciliation guarantees are required for production?
+2. Should provider/dataset copy receipts be stored in contract storage, emitted in events, represented as hashes, or verified against FOC contract events?
+3. Is a trusted allowlisted coordinator sufficient for MVP finalization, or is a challenge/proof/user-submitted receipt path required early?
+4. What reconciliation guarantees are required for production if offchain coordinator state is non-authoritative?
+
+### 17.5 Implementation path and generated stack
+
+1. Should Token Host generate generic CRUD/ledger contracts, a custom FOC platform module, or only a reference app around hand-written contracts?
+2. What is the minimum useful admin UI for a platform operator: account runway, coordinator status, object receipts, usage ledger, or all of these?
+3. Which deployment should be the canonical first demo: Calibration platform-hosted coordinator, direct-to-FOC browser upload, Token Host generated app, or a combined demo?
+4. Which choices should be fixed before writing production contracts, and which can remain runtime configuration?
 
 ## 18. Proposed Phases
 
