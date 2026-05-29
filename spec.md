@@ -567,16 +567,264 @@ Examples:
 - enterprise users use dedicated smart account,
 - advanced users bring their own FOC wallet.
 
-## 9. Offchain Runner
+## 9. Upload Execution and Runner Models
 
-A runner is required for byte movement and FOC execution.
+A runner is required for byte movement and FOC execution. Smart contracts can authorize, meter, and record storage operations, but they cannot move file bytes to providers. This section defines the default upload lifecycle and the runner/data-plane options the stack should support.
 
-### 9.1 Responsibilities
+### 9.1 Recommended upload lifecycle
+
+The recommended platform-managed upload flow is:
+
+```text
+user/app
+  -> platform UI/API
+  -> platform contract request
+  -> FOC runner
+  -> Synapse SDK / FOC providers / FOC contracts
+  -> platform contract finalization
+  -> user/app sees stored object
+```
+
+#### Step 1: Platform prepares FOC authority
+
+Before user uploads, the platform prepares its FOC execution authority:
+
+1. Platform has a FOC root wallet/payer.
+2. Platform deposits USDFC and approves required FOC services.
+3. Platform creates one or more runner session keys.
+4. Platform root authorizes runner session keys in `SessionKeyRegistry` for FWSS permissions:
+   - create dataset,
+   - add pieces,
+   - schedule removals,
+   - delete dataset.
+
+This allows a runner to execute FOC storage operations without using the root wallet directly.
+
+#### Step 2: User requests upload
+
+The user clicks upload or calls the platform API.
+
+The platform collects:
+
+- user identity,
+- file size,
+- content hash, PieceCID, or both if available,
+- desired copy count,
+- CDN preference,
+- metadata hash,
+- max acceptable cost,
+- idempotency key.
+
+The user MAY either:
+
+- sign an EIP-712 platform storage intent, or
+- authenticate with normal platform auth/API key and have the platform relay the onchain request.
+
+#### Step 3: Platform contract records request
+
+The platform submits `requestUpload(...)` to its platform contract.
+
+The contract checks:
+
+- user authorization,
+- nonce/idempotency,
+- quota,
+- prepaid balance or credit limit,
+- max file size,
+- max copies,
+- CDN policy,
+- estimated cost ceiling.
+
+Then it records:
+
+```text
+objectId
+user
+size
+contentHash
+copies
+withCDN
+status = Requested
+reserved balance / quota impact
+```
+
+And emits:
+
+```solidity
+event UploadRequested(
+  uint256 indexed objectId,
+  address indexed user,
+  uint256 size,
+  bytes32 contentHash,
+  uint8 copies,
+  bool withCDN
+);
+```
+
+At this point, the platform has an onchain audit trail before storage execution.
+
+#### Step 4: Runner or upload coordinator picks up request
+
+A runner or upload coordinator watches `UploadRequested` events or receives an equivalent platform job.
+
+Depending on runner/data-plane mode, it gets bytes from one of:
+
+- platform upload endpoint,
+- temporary object store,
+- browser direct stream,
+- signed URL,
+- FOC provider direct upload,
+- local file path in dev,
+- enterprise self-hosted source.
+
+The runner validates:
+
+- file size matches request,
+- content hash or PieceCID matches request where available,
+- request is still open,
+- runner is allowlisted,
+- FOC session key is unexpired,
+- cost and copy count remain within policy.
+
+#### Step 5: Runner executes FOC operation
+
+The runner uses Synapse SDK with its FOC session key.
+
+Conceptually:
+
+```ts
+const sessionKey = SessionKey.fromSecp256k1({
+  privateKey: runnerSessionPrivateKey,
+  root: platformRootAddress,
+  chain,
+})
+
+const synapse = Synapse.create({
+  account: platformRootAccount,
+  sessionKey,
+  source: "platform-id",
+})
+```
+
+Then the runner may:
+
+1. create/reuse storage contexts and datasets,
+2. prepare/check funding if needed,
+3. upload bytes to a provider, or commit bytes already uploaded directly by the user,
+4. add piece to dataset,
+5. create multiple copies,
+6. receive PieceCID, provider IDs, dataset IDs, piece IDs, tx hashes, and retrieval URLs.
+
+FOC state exists under the platform root/payer, but the platform contract attributes it to the end user.
+
+#### Step 6: Runner finalizes on platform contract
+
+Runner calls a function such as:
+
+```solidity
+function finalizeUpload(
+  uint256 objectId,
+  UploadReceipt calldata receipt
+) external onlyRunner;
+```
+
+The receipt may include:
+
+- PieceCID or PieceCID hash,
+- size,
+- completed copies,
+- provider IDs,
+- FOC dataset IDs,
+- piece IDs,
+- FOC tx hashes,
+- retrieval URLs or hashes,
+- actual or estimated cost,
+- success / partial / failure status.
+
+The contract checks:
+
+- caller is authorized runner,
+- object is in expected state,
+- receipt is not already finalized,
+- size/copy count matches policy,
+- cost is within user's signed max cost or reserved amount.
+
+Then it updates:
+
+```text
+status = Committed | Partial | Failed
+activeBytes += size * completedCopies
+reservedBalance -> finalized charge or release
+object receipt fields
+usage counters
+```
+
+And emits:
+
+```solidity
+event UploadFinalized(
+  uint256 indexed objectId,
+  address indexed user,
+  bytes32 pieceCidHash,
+  uint256 size,
+  uint8 copies,
+  uint256 cost
+);
+```
+
+#### Step 7: User gets result
+
+The platform UI/API can read:
+
+- platform contract state,
+- emitted events,
+- optional indexer/cache,
+- FOC retrieval URL.
+
+Example response:
+
+```json
+{
+  "objectId": "123",
+  "status": "committed",
+  "pieceCid": "bafk...",
+  "size": 1048576,
+  "copies": 2,
+  "retrievalUrl": "https://...",
+  "charged": "0.00..."
+}
+```
+
+#### Step 8: Failure path
+
+If upload fails:
+
+1. Runner calls `failUpload(objectId, reasonHash)`, or timeout allows user/platform to cancel.
+2. Contract marks status `Failed` or `Expired`.
+3. Reserved balance/quota is released or partially charged depending on policy.
+4. Event is emitted for auditability.
+
+### 9.2 Dual authorization model
+
+The cleanest architecture has two separate authorization flows:
+
+```text
+User authorizes platform action:
+  user intent -> platform contract
+
+Platform authorizes FOC execution:
+  FOC root wallet -> SessionKeyRegistry -> runner session key
+```
+
+The first authorization proves the user requested the action and accepted platform policy/billing. The second authorization lets an operational runner perform FOC actions without exposing the platform root wallet.
+
+### 9.3 Runner responsibilities
 
 The runner MAY:
 
 - watch `UploadRequested` events,
 - accept temporary upload bytes,
+- coordinate direct-to-FOC uploads,
 - validate content hash/size,
 - call Synapse SDK,
 - create/reuse datasets,
@@ -586,7 +834,26 @@ The runner MAY:
 - retry failed phases,
 - emit logs/metrics.
 
-### 9.2 Statelessness requirement
+The runner is not the same as the platform contract.
+
+The platform contract answers:
+
+- is this upload allowed?
+- who owns it?
+- who is charged?
+- what status is it in?
+- which runner may finalize?
+- what receipt was recorded?
+
+The runner answers:
+
+- where are the bytes?
+- how should they be uploaded?
+- how should Synapse SDK be used?
+- did FOC accept/commit the piece?
+- what receipt should be finalized?
+
+### 9.4 Statelessness requirement
 
 The runner SHOULD be reconstructable from chain state.
 
@@ -601,7 +868,311 @@ Allowed runner state:
 
 Authoritative state SHOULD be in platform contracts and FOC contracts.
 
-### 9.3 Runner trust model
+### 9.5 Runner model A: platform-hosted runner
+
+This is the most natural v1 model for SaaS/platform companies.
+
+```text
+user browser/API client
+  -> platform upload endpoint
+  -> platform-hosted FOC runner
+  -> Synapse SDK / FOC
+  -> platform contract finalize
+```
+
+The platform maintains the runner as backend infrastructure.
+
+Pros:
+
+- best UX for users,
+- user does not need FOC keys, FIL, USDFC, Node setup, or CLI,
+- platform can enforce file size, MIME policy, quotas, malware scanning, and rate limits,
+- platform can hide FOC complexity,
+- works well with platform-managed wallet/session key,
+- easier to monitor and support.
+
+Cons:
+
+- platform temporarily handles file bytes,
+- platform pays bandwidth/compute,
+- runner is trusted to report correct receipts unless verification/challenge logic is added,
+- more infrastructure burden.
+
+Recommended v1 hosted-runner flow:
+
+```text
+1. User uploads bytes to platform-hosted runner.
+2. Platform contract records UploadRequested.
+3. Runner sees request and validates bytes.
+4. Runner uses FOC session key to upload through Synapse.
+5. Runner gets PieceCID/dataset/provider receipt.
+6. Runner finalizes UploadFinalized on platform contract.
+7. User reads result from platform API/contract.
+```
+
+### 9.6 Runner model B: user-local runner
+
+The runner runs on the user's machine, browser, desktop app, CLI, or agent.
+
+```text
+user local runner
+  -> FOC via Synapse SDK
+  -> platform contract finalize
+```
+
+Two variants should remain possible:
+
+#### B1. User-local runner using platform session key
+
+This is generally unsafe for public users because the platform would be distributing FOC runner credentials.
+
+It is NOT RECOMMENDED except for trusted enterprise/on-prem agents where the runner environment is controlled and contractual trust exists.
+
+#### B2. User-local runner using user's own FOC wallet
+
+The user pays or signs FOC operations directly.
+
+```text
+user wallet pays FOC
+  -> local runner uploads
+  -> platform contract records attribution
+```
+
+This is more decentralized but worse UX and no longer the primary “platform-managed wallet pays FOC” model.
+
+Pros:
+
+- platform does not handle file bytes,
+- better for privacy or enterprise/on-prem data,
+- lower platform bandwidth cost,
+- can work for technical users, agents, and CLI workflows.
+
+Cons:
+
+- harder UX,
+- user must run software,
+- if platform pays, credential delegation is dangerous,
+- harder support/retry/reconciliation,
+- less suitable for ordinary SaaS users.
+
+### 9.7 Runner model C: hybrid / bring-your-own runner
+
+The platform MAY support allowlisted runners.
+
+```text
+platform contract
+  -> allows runner A, B, C
+  -> each runner can finalize certain uploads
+```
+
+Possible runner types:
+
+- platform-hosted runner,
+- enterprise customer self-hosted runner,
+- local dev runner,
+- AI-agent runner,
+- serverless worker runner,
+- marketplace runner in future.
+
+The contract may store:
+
+```solidity
+mapping(address => bool) public approvedRunners;
+mapping(address => RunnerPolicy) public runnerPolicies;
+```
+
+A request may specify:
+
+```solidity
+address preferredRunner;
+bytes32 runnerMode;
+```
+
+or the platform may assign a runner offchain.
+
+Pros:
+
+- flexible,
+- lets v1 start centralized but grow toward self-hosted/decentralized execution,
+- useful for enterprise customers who do not want platform to touch bytes.
+
+Cons:
+
+- more complex,
+- requires runner authorization, policies, revocation, and audit,
+- requires clear responsibility for failures.
+
+Recommended direction:
+
+```text
+v1 default:
+  platform-hosted runner + platform FOC root wallet + FOC session key
+
+v1 optional/dev:
+  local runner for testing
+
+future:
+  enterprise self-hosted runner
+  bring-your-own FOC wallet
+  decentralized/allowlisted runner network
+```
+
+### 9.8 Direct-to-FOC upload with platform-delegated signing
+
+A key optional architecture is **direct data plane, platform-controlled control plane**.
+
+In this model, the platform never receives file bytes, but it still controls authorization, payment, and accounting.
+
+High-level flow:
+
+```text
+user browser/app
+  -> asks platform for upload authorization
+  -> uploads bytes directly to FOC provider
+  -> platform signs/authorizes FOC commit
+  -> FOC provider/FWSS commits piece
+  -> platform contract records final receipt
+```
+
+#### Step 1: User requests an upload ticket
+
+User calls:
+
+```http
+POST /uploads/request
+```
+
+with:
+
+- user auth/session/API key,
+- file size,
+- content hash or PieceCID if already computed,
+- desired copies,
+- CDN preference,
+- max cost,
+- metadata hash.
+
+Platform checks:
+
+- user quota/balance,
+- max size,
+- copies/CDN policy,
+- rate limits.
+
+Then platform records or references an onchain `UploadRequested`.
+
+#### Step 2: Platform returns an upload plan
+
+The platform chooses:
+
+- FOC provider,
+- dataset or new dataset plan,
+- upload endpoint,
+- object id,
+- expected PieceCID/content hash,
+- expiry,
+- optional commit authorization token.
+
+Example response:
+
+```json
+{
+  "objectId": "123",
+  "providerId": "5",
+  "serviceURL": "https://provider.example",
+  "datasetId": "42",
+  "expectedPieceCid": "bafk...",
+  "expiresAt": 1234567890
+}
+```
+
+#### Step 3: User uploads bytes directly to FOC provider
+
+The user/browser uploads to the provider's PDP API directly:
+
+```text
+browser -> FOC provider /pdp/piece
+```
+
+The platform does not proxy the file.
+
+#### Step 4: Platform signs the FOC commit
+
+The browser, runner, or provider needs FOC `extraData` authorizing the piece to be added to a dataset.
+
+The platform keeps its root wallet/session key private and signs only the specific operation:
+
+```text
+add this PieceCID
+to this dataset
+for this payer/root
+with this metadata
+before this expiry
+```
+
+The platform SHOULD sign using a FOC session key rather than the root wallet. The platform MUST NOT give the user the platform wallet key or general runner session key. It only returns a narrow operation-specific signature or arranges for the runner to submit it.
+
+#### Step 5: Commit happens
+
+Two variants should remain possible:
+
+**Variant A: browser submits commit to provider**
+
+```text
+browser -> provider addPieces(extraData)
+provider -> FOC contracts
+```
+
+The browser coordinates the flow, but cannot change what the platform signed.
+
+**Variant B: platform runner submits commit**
+
+```text
+browser -> provider stores bytes
+platform runner -> provider addPieces(extraData)
+provider -> FOC contracts
+```
+
+The platform still never sees file bytes. The runner only commits the already-uploaded PieceCID. This is likely the safer v1 direct-upload model.
+
+#### Step 6: Platform finalizes receipt
+
+Once FOC confirms the piece, platform records:
+
+- object id,
+- user,
+- PieceCID,
+- size,
+- provider id,
+- dataset id,
+- FOC tx hash,
+- charge/quota impact.
+
+Either:
+
+- platform runner calls `finalizeUpload`, or
+- user submits receipt and platform verifies or accepts it under policy.
+
+Recommended direct-upload v1:
+
+```text
+browser uploads bytes directly to FOC provider
+platform runner/signing service handles commit + finalization
+```
+
+This gives the platform less byte-handling responsibility while preserving platform control over wallet/signing/accounting.
+
+Caveats to test:
+
+- provider CORS supports browser direct upload,
+- browser can compute PieceCID efficiently for large files,
+- provider direct upload APIs work from web clients,
+- Synapse SDK supports split direct-upload / delegated-commit flow cleanly in browser,
+- commit signatures can be safely issued after quota/policy checks,
+- retry/failure behavior when upload succeeds but commit fails,
+- direct upload can be bound to an onchain `objectId` and cannot be replayed to spend platform funds unexpectedly.
+
+### 9.9 Runner trust model
 
 Open options:
 
@@ -613,20 +1184,7 @@ Open options:
 
 MVP may use a trusted runner with admin allowlisting.
 
-### 9.4 Finalization
-
-Runner calls a function such as:
-
-```solidity
-function finalizeUpload(
-  uint256 objectId,
-  string calldata pieceCid,
-  uint256 size,
-  CopyReceipt[] calldata copies,
-  bytes32 focTxHash,
-  uint256 actualCost
-) external onlyRunner;
-```
+### 9.10 Finalization receipt design
 
 Open receipt design:
 
