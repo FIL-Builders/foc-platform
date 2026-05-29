@@ -30,8 +30,18 @@ Build a reusable **FOC Platform Stack** for companies that want to build higher-
 
 The stack should make this easy:
 
-```text
-platform user -> platform storage action -> platform contract policy/accounting -> FOC storage execution -> onchain receipt/usage update
+```mermaid
+flowchart LR
+  user["Platform User"]
+  action["Platform Storage Action"]
+  policy["Platform Contract<br/>Policy + Accounting"]
+  foc["FOC Storage Execution"]
+  receipt["Onchain Receipt<br/>Usage Update"]
+
+  user --> action
+  action --> policy
+  policy --> foc
+  foc --> receipt
 ```
 
 The platform should be able to expose simple APIs such as:
