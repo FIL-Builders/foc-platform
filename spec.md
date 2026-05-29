@@ -126,36 +126,21 @@ Onchain metadata is public. The stack MUST NOT store secrets or sensitive PII on
 
 ## 5. Core Architecture
 
-```text
-+------------------+       +------------------------+
-| End User / App   | ----> | Platform UI/API/Relay  |
-+------------------+       +------------------------+
-                                  |
-                                  v
-                         +-------------------+
-                         | Platform Contract |
-                         | Stack             |
-                         +-------------------+
-                                  |
-                          events / requests
-                                  |
-                                  v
-                         +-------------------+
-                         | FOC Runner        |
-                         | Synapse SDK       |
-                         +-------------------+
-                                  |
-                                  v
-                         +-------------------+
-                         | FOC Contracts +   |
-                         | Providers         |
-                         +-------------------+
-                                  |
-                                  v
-                         +-------------------+
-                         | finalize receipt  |
-                         | on Platform Stack |
-                         +-------------------+
+```mermaid
+flowchart TD
+  user["End User / App"]
+  api["Platform UI / API / Relay"]
+  contracts["Platform Contract Stack"]
+  runner["FOC Runner<br/>Synapse SDK"]
+  foc["FOC Contracts + Providers"]
+  finalize["Finalize Receipt<br/>on Platform Stack"]
+
+  user --> api
+  api --> contracts
+  contracts -->|"events / requests"| runner
+  runner --> foc
+  foc --> finalize
+  finalize --> contracts
 ```
 
 ## 6. Platform Contract Stack
