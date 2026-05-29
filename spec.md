@@ -169,6 +169,38 @@ flowchart TD
 
 The runner is an execution role, not necessarily a platform-owned server. In v1 the default runner is expected to be platform-hosted, but the same contract model should support user-local, enterprise self-hosted, serverless, or direct-to-FOC data-plane variants. The platform contract remains the authoritative policy/accounting layer regardless of where the runner executes.
 
+### 5.1 Execution role terminology
+
+This spec uses **FOC Storage Coordinator** as the umbrella term for the component, service, or set of components that turns an approved platform storage request into an actual FOC storage operation and records the result.
+
+A FOC Storage Coordinator may be one service in v1 or split across browser, server, signer, and worker components. It may include these sub-roles:
+
+```mermaid
+flowchart TD
+  coordinator["FOC Storage Coordinator"]
+  upload["Upload Client<br/>moves file bytes"]
+  signer["Commit Signer<br/>produces scoped FOC authorization"]
+  focTx["FOC Transaction Executor<br/>executes FOC protocol actions"]
+  platformTx["Platform Contract Transaction Executor<br/>writes to platform-specific wrapper contract"]
+  finalizer["Receipt Finalizer<br/>specific finalizeUpload role"]
+
+  coordinator --> upload
+  coordinator --> signer
+  coordinator --> focTx
+  coordinator --> platformTx
+  platformTx --> finalizer
+```
+
+Definitions:
+
+- **Upload Client**: moves file bytes. This may be a browser, platform backend, local CLI, enterprise agent, or serverless function.
+- **Commit Signer**: produces scoped FOC authorization/signatures, often using a platform session key, KMS signer, root wallet, or future smart-account signer.
+- **FOC Transaction Executor**: submits or triggers FOC protocol actions such as dataset creation, adding pieces, scheduling deletion, payment preparation, or provider/FWSS calls through Synapse SDK.
+- **Platform Contract Transaction Executor**: submits transactions to the platform-specific wrapper/registry contract, such as `requestUpload(...)`, `finalizeUpload(...)`, `failUpload(...)`, and usage/billing updates.
+- **Receipt Finalizer**: the Platform Contract Transaction Executor role for the specific `finalizeUpload(...)` path.
+
+“Platform Contract” means the platform-specific onchain wrapper/registry contract deployed to Filecoin/EVM. It does not mean the platform API itself is onchain; the platform can remain a normal offchain API/product service.
+
 ## 6. Platform Contract Stack
 
 The contract stack MAY be implemented as one contract for MVP or multiple contracts for modularity.
