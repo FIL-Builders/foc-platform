@@ -113,7 +113,7 @@ Onchain metadata is public. The stack MUST NOT store secrets or sensitive PII on
 
 ### 4.1 In scope
 
-- Platform-specific storage wrapper contracts.
+- Platform Contract Stack components for storage registry, usage ledger, policy, treasury, and receipt recording.
 - User storage intents and authorization.
 - Onchain object registry.
 - Onchain usage/accounting ledger.
@@ -167,7 +167,7 @@ flowchart TD
   receipt --> contracts
 ```
 
-The FOC Storage Coordinator is an execution and coordination role, not necessarily a platform-owned server. In v1 the default coordinator is expected to be platform-hosted, but the same contract model should support user-local, enterprise self-hosted, serverless, or direct-to-FOC data-plane variants. The platform contract remains the authoritative policy/accounting layer regardless of where the coordinator executes.
+The FOC Storage Coordinator is an execution and coordination role, not necessarily a platform-owned server. In v1 the default coordinator is expected to be platform-hosted, but the same contract model should support user-local, enterprise self-hosted, serverless, or direct-to-FOC data-plane variants. The Platform Contract remains the authoritative policy/accounting layer regardless of where the coordinator executes.
 
 ### 5.1 Execution role terminology
 
@@ -181,7 +181,7 @@ flowchart TD
   upload["Upload Client<br/>moves file bytes"]
   signer["Commit Signer<br/>produces scoped FOC authorization"]
   focTx["FOC Transaction Executor<br/>executes FOC protocol actions"]
-  platformTx["Platform Contract Transaction Executor<br/>writes to platform-specific wrapper contract"]
+  platformTx["Platform Contract Transaction Executor<br/>writes to Platform Contract"]
   finalizer["Receipt Finalizer<br/>specific finalizeUpload role"]
 
   coordinator --> upload
@@ -196,10 +196,10 @@ Definitions:
 - **Upload Client**: moves file bytes. This may be a browser, platform backend, local CLI, enterprise agent, or serverless function.
 - **Commit Signer**: produces scoped FOC authorization/signatures, often using a platform session key, KMS signer, root wallet, or future smart-account signer.
 - **FOC Transaction Executor**: submits or triggers FOC protocol actions such as dataset creation, adding pieces, scheduling deletion, payment preparation, or provider/FWSS calls through Synapse SDK.
-- **Platform Contract Transaction Executor**: submits transactions to the platform-specific wrapper/registry contract, such as `requestUpload(...)`, `finalizeUpload(...)`, `failUpload(...)`, and usage/billing updates.
+- **Platform Contract Transaction Executor**: submits transactions to a Platform Contract, such as `requestUpload(...)`, `finalizeUpload(...)`, `failUpload(...)`, and usage/billing updates.
 - **Receipt Finalizer**: the Platform Contract Transaction Executor role for the specific `finalizeUpload(...)` path.
 
-“Platform Contract” means the platform-specific onchain wrapper/registry contract deployed to Filecoin/EVM. It does not mean the platform API itself is onchain; the platform can remain a normal offchain API/product service.
+“Platform Contract” means a platform-specific onchain contract deployed to Filecoin/EVM for product/accounting state. It does not mean the platform API itself is onchain; the platform can remain a normal offchain API/product service. “Platform Contract Stack” means the set of Platform Contracts that together implement storage registry, usage ledger, policy, treasury, and receipt recording concerns.
 
 ## 6. Platform Contract Stack
 
@@ -282,7 +282,7 @@ event AccountCredited(address indexed user, uint256 amount, bytes32 reason);
 
 Open billing models:
 
-1. **Prepaid balance:** users deposit tokens into the platform contract.
+1. **Prepaid balance:** users deposit tokens into the Platform Contract or Platform Treasury.
 2. **Credit ledger:** platform pays FOC and records user debt onchain.
 3. **Quota-only:** contract records usage but billing remains external.
 4. **Hybrid:** prepaid for some tenants, invoice/credit for others.
@@ -363,6 +363,23 @@ Open treasury modes:
 3. Contract directly deposits/approves Filecoin Pay.
 4. Contract reimburses KMS/EOA execution wallet.
 5. No treasury; contract only records usage.
+
+### 6.6 Per-user FOC dataset allocation
+
+The current product assumption is that FOC datasets should be allocated per platform user, rather than shared across unrelated users. This is the simplest way to keep FOC payment state, storage receipts, and platform usage accounting auditable to a user identity.
+
+Because a FOC data set is associated with one provider, multi-copy storage may require multiple per-user datasets: for example, one dataset per `(platformUser, provider, cdnMode, storageClass)` tuple. The platform may still pay from one platform root wallet, but the Platform Contract Stack should be able to attribute each dataset and copy back to one user or opaque user-id hash.
+
+Recommended dataset metadata should avoid PII and use stable opaque identifiers, for example:
+
+```text
+source = platform-id
+platformUserHash = keccak256(platform-specific-user-id)
+storageClass = standard | archive | premium
+cdn = true | false
+```
+
+The spec does not currently target shared cross-user datasets as a primary product mode. They may be reconsidered later for cost optimization, but only if user-level auditability and billing attribution remain clear.
 
 ## 7. FOC Session-Key Primitive
 
@@ -477,7 +494,7 @@ flowchart TD
   registry["SessionKeyRegistry<br/>authorizes coordinator session key"]
   coordinator["Coordinator uses session key<br/>with Synapse SDK"]
   foc["FOC datasets + payment rails<br/>owned by platform root"]
-  platform["Platform wrapper contracts<br/>record per-user attribution + usage"]
+  platform["Platform Contracts<br/>record per-user attribution + usage"]
 
   root --> registry
   registry --> coordinator
@@ -504,7 +521,7 @@ This separates three concerns:
 
 - FOC root identity and funds,
 - operational signing by coordinator keys,
-- user-level policy/accounting in platform contracts.
+- user-level policy/accounting in Platform Contracts.
 
 ### 7.6 Session keys vs platform user intents
 
@@ -517,7 +534,7 @@ FOC session keys and platform user intents solve different layers.
 | FOC coordinator -> provider/FWSS | Synapse signed extraData | Provider/FWSS verifies operation authorization. |
 | Platform accounting | Platform contracts | Track object ownership, usage, quotas, charges, and receipts. |
 
-The platform SHOULD NOT treat a FOC session key as proof that an end user requested an upload. End-user authorization should remain in the platform contract stack.
+The platform SHOULD NOT treat a FOC session key as proof that an end user requested an upload. End-user authorization should remain in the Platform Contract Stack.
 
 ### 7.7 Contract-wallet considerations
 
@@ -544,9 +561,9 @@ flowchart LR
 
 ### 7.8 Spec implication
 
-The FOC session-key primitive should be considered a first-class building block of the platform stack, but not a complete replacement for the platform contract stack.
+The FOC session-key primitive should be considered a first-class building block of the platform stack, but not a complete replacement for the Platform Contract Stack.
 
-It should be used for **operator delegation into FOC**, while the platform contracts handle **multi-tenant product semantics**.
+It should be used for **operator delegation into FOC**, while Platform Contracts handle **multi-tenant product semantics**.
 
 ## 8. FOC Integration Modes
 
@@ -565,7 +582,7 @@ Pros:
 
 Cons:
 
-- FOC payer is not the platform contract,
+- FOC payer is not the Platform Contract,
 - requires signer custody/KMS,
 - trust bridge between FOC txs and platform receipts.
 
@@ -602,7 +619,7 @@ Cons:
 
 ### 8.4 Mode D: Users pay FOC directly, platform records usage
 
-User wallets perform FOC payments/operations directly while platform contracts record attribution.
+User wallets perform FOC payments/operations directly while Platform Contracts record attribution.
 
 Pros:
 
@@ -688,7 +705,7 @@ The user MAY either:
 
 #### Step 3: Platform contract records request
 
-The platform submits `requestUpload(...)` to its platform contract.
+The platform submits `requestUpload(...)` to its Platform Contract.
 
 The contract checks:
 
@@ -781,9 +798,9 @@ Then the coordinator may:
 5. create multiple copies,
 6. receive PieceCID, provider IDs, dataset IDs, piece IDs, tx hashes, and retrieval URLs.
 
-FOC state exists under the platform root/payer, but the platform contract attributes it to the end user.
+FOC state exists under the platform root/payer, but the Platform Contract attributes it to the end user.
 
-#### Step 6: Coordinator finalizes on platform contract
+#### Step 6: Coordinator finalizes on Platform Contract
 
 Coordinator calls a function such as:
 
@@ -842,7 +859,7 @@ event UploadFinalized(
 
 The platform UI/API can read:
 
-- platform contract state,
+- Platform Contract state,
 - emitted events,
 - optional indexer/cache,
 - FOC retrieval URL.
@@ -899,13 +916,13 @@ The coordinator MAY:
 - create/reuse datasets,
 - upload files and commit pieces,
 - submit FOC transactions,
-- call `finalizeUpload` on the platform contract,
+- call `finalizeUpload` on the Platform Contract,
 - retry failed phases,
 - emit logs/metrics.
 
-The coordinator is not the same as the platform contract.
+The coordinator is not the same as the Platform Contract.
 
-The platform contract answers:
+The Platform Contract answers:
 
 - is this upload allowed?
 - who owns it?
@@ -935,7 +952,7 @@ Allowed coordinator state:
 - logs/metrics,
 - optional non-authoritative job mirror.
 
-Authoritative state SHOULD be in platform contracts and FOC contracts.
+Authoritative state SHOULD be in Platform Contracts and FOC contracts.
 
 ### 9.5 Coordinator model A: platform-hosted coordinator
 
@@ -1113,6 +1130,11 @@ A key optional architecture is **direct data plane, platform-controlled control 
 
 In this model, the platform never receives file bytes, but it still controls authorization, payment, and accounting.
 
+This flow should usually have two distinct authorization moments:
+
+1. **Upload ticket / plan:** the platform authorizes the user or browser to upload a specific file-shaped payload to a selected provider path. This is not broad spend authority.
+2. **FOC commit authorization:** after the PieceCID/content hash is known and policy checks pass, the platform signs a narrow FOC operation-specific authorization for adding that piece to an approved dataset.
+
 High-level flow:
 
 ```mermaid
@@ -1168,7 +1190,9 @@ The platform chooses:
 - object id,
 - expected PieceCID/content hash,
 - expiry,
-- optional commit authorization token.
+- optional upload ticket or provider authorization token.
+
+The upload plan SHOULD NOT include broad reusable FOC spend authority. If it includes any commit-related authorization, that authorization must be scoped to the expected PieceCID/content hash, dataset, payer/root, metadata, expiry, and max-cost policy.
 
 Example response:
 
@@ -1198,7 +1222,7 @@ The platform does not proxy the file.
 
 The browser, coordinator, or provider needs FOC `extraData` authorizing the piece to be added to a dataset.
 
-The platform keeps its root wallet/session key private and signs only the specific operation:
+This is the second authorization moment. It SHOULD happen after the platform has enough information to bind the operation to the user request, especially the PieceCID or content hash. The platform keeps its root wallet/session key private and signs only the specific operation:
 
 ```mermaid
 flowchart TD
@@ -1298,12 +1322,45 @@ MVP may use a trusted coordinator with admin allowlisting.
 
 ### 9.10 Finalization receipt design
 
-Open receipt design:
+The Platform Contract Stack needs a compact but useful receipt shape for `finalizeUpload(...)`. The exact storage layout remains open, but implementations should preserve enough information to reconstruct the user-facing object, audit FOC transactions, and reconcile platform usage with FOC payment state.
 
-- store all copy receipts onchain,
-- store compact hashes onchain and full receipt in event,
+Provisional receipt shape:
+
+```solidity
+enum UploadFinalizationStatus {
+  Committed,
+  Partial,
+  Failed
+}
+
+struct CopyReceipt {
+  uint256 providerId;
+  uint256 dataSetId;
+  uint256 pieceId;
+  bytes32 addPieceTxHash;
+  bytes32 retrievalUrlHash;
+}
+
+struct UploadReceipt {
+  bytes32 pieceCidHash;
+  uint256 size;
+  uint8 requestedCopies;
+  uint8 completedCopies;
+  uint256 estimatedCost;
+  uint256 actualCost;
+  UploadFinalizationStatus status;
+  CopyReceipt[] copies;
+}
+```
+
+Open receipt design choices:
+
+- store full PieceCID strings or only `pieceCidHash` plus event data,
+- store all copy receipts in contract storage or only emit them in events,
+- store retrieval URLs, retrieval URL hashes, or derive retrieval URLs offchain,
 - verify FOC contract events onchain if feasible,
-- rely on allowlisted coordinator assertion for MVP.
+- rely on allowlisted coordinator assertion for MVP,
+- include FOC payment rail IDs directly in the receipt or reconstruct them from dataset IDs and FOC views.
 
 ## 10. Token Host Builder Integration
 
@@ -1453,9 +1510,22 @@ Required questions:
 9. Does FWSS validate session-key authorization based only on the recovered signer plus root/payer address, or are there implicit EOA assumptions about the root?
 10. Does `loginAndFund` matter for coordinator session keys on Filecoin, or should coordinator keys remain unfunded except for gas edge cases?
 11. What expiry duration is appropriate for production coordinators?
-12. Can FOC receipts be compactly represented and verified by a wrapper contract?
+12. Can FOC receipts be compactly represented and verified by a Platform Contract?
 13. What minimum data must be stored onchain to reconstruct user/object usage?
 14. What gas costs result from storing full receipts vs compact hashes/events?
+
+Recommended test cases:
+
+1. **EOA root + session-key coordinator upload**: platform EOA deposits/approves FOC, authorizes a coordinator session key, uploads a file, and finalizes a Platform Contract receipt.
+2. **Per-user dataset attribution**: two platform users upload through the same platform root wallet, but each upload lands in user-attributable FOC datasets and Platform Contract records.
+3. **Direct-to-FOC browser upload**: browser uploads bytes directly to a provider, platform signs a scoped commit authorization after PieceCID/content hash is known, and a coordinator finalizes the receipt.
+4. **Contract root session-key authorization**: Platform Contract or smart account calls `SessionKeyRegistry.login(...)`; test whether an EOA session key can sign FOC operations for that root/payer.
+5. **Contract treasury payment path**: contract holds USDFC, approves/deposits into Filecoin Pay, and attempts to be payer for a dataset/payment rail.
+6. **Smart account / ERC-1271 path**: smart account signs or validates FOC typed data, if supported, and attempts dataset creation/add-pieces flow.
+7. **Provider direct-upload/CORS path**: browser performs provider upload without platform byte proxying; verify CORS, upload status, and failure behavior.
+8. **Receipt compaction path**: finalize with compact hashes and event data, then reconstruct PieceCID/copy/provider/dataset/payment evidence from chain views.
+9. **Reconciliation path**: intentionally create a mismatch between Platform Contract receipt state and FOC dataset/payment state, then detect and classify it.
+10. **Session-key expiry/revocation path**: coordinator operation fails after expiry or revoke; platform observes and recovers by refreshing authorization.
 
 Deliverable:
 
@@ -1548,47 +1618,94 @@ Avoid onchain:
 - API keys,
 - temporary upload URLs.
 
-## 17. Open Questions
+## 17. Reconciliation and Audit Model
+
+The Platform Contract Stack and FOC onchain state must remain reconcilable. The goal is not merely to write platform receipts, but to ensure that platform-visible usage, user attribution, and billing state can be checked against actual FOC datasets, pieces, payment rails, and transaction receipts.
+
+### 17.1 Sources of truth
+
+The intended source-of-truth model is:
+
+- **FOC contracts and provider-confirmed FOC transactions** are the source of truth for actual FOC storage commitments, datasets, pieces, payment rails, and payment state.
+- **Platform Contracts** are the source of truth for platform product semantics: which user requested an object, who owns it in the platform, what quota/billing impact was recorded, and which FOC receipt was attributed to that user.
+- **Coordinator state, platform API databases, logs, and indexers** are not authoritative. They may improve UX and operations, but they must be reconstructable or reconcilable from onchain state.
+
+### 17.2 Required synchronization properties
+
+For each finalized upload, the Platform Contract Stack should be able to prove or reconstruct:
+
+1. The platform user or opaque user-id hash associated with the object.
+2. The object id and request that authorized the upload.
+3. The PieceCID or PieceCID hash committed to FOC.
+4. The FOC provider ids, dataset ids, and piece ids used for each completed copy.
+5. The FOC transaction hashes or event evidence for dataset creation/add-pieces operations.
+6. The FOC payer/root wallet and payment rail state associated with the dataset.
+7. The platform usage/billing delta applied to the user.
+
+The onchain FOC payment state and the corresponding Platform Contract receipt/usage state should be:
+
+- **in sync**: Platform Contract records should correspond to actual FOC datasets, pieces, and payment rails;
+- **source-of-truth aligned**: FOC contracts are authoritative for FOC protocol/payment facts, while Platform Contracts are authoritative for user attribution and platform billing semantics;
+- **auditable to user identity**: every recorded FOC object/copy/payment attribution should trace back to a platform user address or opaque user-id hash without exposing sensitive PII.
+
+### 17.3 Reconciliation process
+
+A reconciliation process, whether manual, CLI-driven, or automated, should:
+
+1. Read finalized Platform Contract object receipts.
+2. Query FOC datasets, pieces, provider ids, and payment rails through Synapse SDK / FOC views.
+3. Compare Platform Contract usage counters against FOC piece sizes and copy counts.
+4. Compare recorded payer/root, dataset ids, provider ids, and tx hashes against FOC state.
+5. Detect missing receipts, orphan FOC datasets, failed/partial copies, unexpected payment rails, and stale coordinator jobs.
+6. Emit an auditable reconciliation report that can be tied to platform user ids or opaque user-id hashes.
+
+Open reconciliation choices:
+
+- whether reconciliation is a CLI command, background worker, Token Host generated admin view, or all of these;
+- whether mismatches trigger automatic corrective transactions or only operator alerts;
+- whether per-user FOC dataset allocation is required for all production modes or can be relaxed under explicit product constraints.
+
+## 18. Open Questions
 
 This draft intentionally leaves several choices unresolved. The body of the spec describes the viable shapes; this section names the decision gates that should be closed by compatibility work, prototypes, and product feedback.
 
-### 17.1 Payment, custody, and delegation
+### 18.1 Payment, custody, and delegation
 
 1. What should the first supported FOC payer be: platform EOA/KMS, platform smart account, contract treasury, user-pays wallet, or a hybrid model?
 2. Should v1 always use FOC session keys for coordinator execution, or should direct root signing remain a supported operator mode?
 3. Can a smart account or contract wallet safely be the root identity for FOC session keys and payment rails?
 4. Should a platform-specific contract custody USDFC in v1, or only record usage while an EOA/KMS wallet funds FOC?
-5. How much of FOC payment rail state should be mirrored in the platform contract?
+5. How much of FOC payment rail state should be mirrored in the Platform Contract?
 
-### 17.2 User authorization and billing semantics
+### 18.2 User authorization and billing semantics
 
 1. Should users authorize uploads by sending platform-contract transactions, signing EIP-712 storage intents, authenticating to a normal platform API, or using a sponsored/gasless relay flow?
 2. Should user billing be prepaid, credit-based, quota-only, token-gated/subscription-based, or hybrid?
 3. When should user balances or quotas be reserved and released: request time, byte upload time, FOC commit time, or final receipt time?
 4. What cost-slippage and max-cost guarantees should the user receive before the platform spends FOC funds?
 
-### 17.3 Coordinator placement and data plane
+### 18.3 Coordinator placement and data plane
 
 1. Should the first product default be a platform-hosted coordinator, direct-to-FOC browser upload with platform-delegated signing, or both?
 2. Which coordinator roles can safely run in the browser or user-local environment, and which must remain platform-controlled?
 3. What enterprise/BYO coordinator model is worth preserving in v1 interfaces even if not implemented immediately?
 4. Should uploads be synchronous from the API perspective, async/event-driven by default, or support both with polling/webhook patterns?
 
-### 17.4 Receipts, verification, and reconciliation
+### 18.4 Receipts, verification, and reconciliation
 
-1. Should the platform contract store full PieceCID strings or compact hashes?
+1. Should the Platform Contract store full PieceCID strings or compact hashes?
 2. Should provider/dataset copy receipts be stored in contract storage, emitted in events, represented as hashes, or verified against FOC contract events?
 3. Is a trusted allowlisted coordinator sufficient for MVP finalization, or is a challenge/proof/user-submitted receipt path required early?
 4. What reconciliation guarantees are required for production if offchain coordinator state is non-authoritative?
 
-### 17.5 Implementation path and generated stack
+### 18.5 Implementation path and generated stack
 
 1. Should Token Host generate generic CRUD/ledger contracts, a custom FOC platform module, or only a reference app around hand-written contracts?
 2. What is the minimum useful admin UI for a platform operator: account runway, coordinator status, object receipts, usage ledger, or all of these?
 3. Which deployment should be the canonical first demo: Calibration platform-hosted coordinator, direct-to-FOC browser upload, Token Host generated app, or a combined demo?
 4. Which choices should be fixed before writing production contracts, and which can remain runtime configuration?
 
-## 18. Proposed Phases
+## 19. Proposed Phases
 
 ### Phase 0: Research and compatibility
 
@@ -1629,7 +1746,7 @@ This draft intentionally leaves several choices unresolved. The body of the spec
 - Audit.
 - Documentation and reference platform integration.
 
-## 19. Success Criteria
+## 20. Success Criteria
 
 The buildout is successful when:
 
