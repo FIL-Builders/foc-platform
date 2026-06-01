@@ -49,15 +49,14 @@ Together, these projects cover different layers of the FOC developer experience.
 
 ## Initial development direction
 
-The draft spec keeps several implementation options open, including:
+The current v1 direction is:
 
 - platform EOA/KMS payer,
-- smart-account payer,
-- contract treasury payer,
-- prepaid user balances,
-- credit/quota accounting,
-- trusted coordinator finalization,
-- stronger receipt/proof models,
-- Token Host-generated contracts and UI.
+- FOC session keys for coordinator execution,
+- platform-hosted allowlisted coordinator,
+- onchain request, object, usage, and compact receipt state,
+- quota/credit-style accounting before contract-custodied user deposits.
 
-The next recommended step is a compatibility spike against Filecoin Calibration to determine which FOC payment, signer, and coordinator models are currently viable.
+Smart-account payers, contract treasury payment, direct browser-to-FOC upload, BYO coordinators, stronger proof models, and Token Host-generated production scaffolding remain compatibility-gated future paths.
+
+The next recommended step is to complete the Phase 0 Filecoin Calibration compatibility report in `spec.md`, including required transaction hashes, pass/fail answers, SDK gaps, and the final recommended v1 mode.
