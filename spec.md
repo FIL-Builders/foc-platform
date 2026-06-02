@@ -253,7 +253,7 @@ struct StorageObject {
 }
 ```
 
-Potential statuses:
+Potential statuses from earlier design exploration. These are not the v1 status values; the normative v1 `UploadStatus` enum is defined in section 6.7.2.
 
 ```solidity
 enum UploadStatus {
@@ -413,7 +413,7 @@ The v1 implementation SHOULD start as one `FocPlatformRegistry` contract or as a
 #### 6.7.1 Identifiers and storage policy
 
 - `accountId` is a nonzero `bytes32` opaque platform account identifier, such as `keccak256(platformId, tenantId, userId)`. It MUST NOT encode raw email, name, customer id, or other sensitive PII.
-- `user` is the platform user's wallet address when one exists. If the user is only known to a platform API, `user` MAY be `address(0)` and the authorized relayer is accountable for the `accountId` mapping.
+- `user` is the platform user's wallet address when one exists. If the user is only known to a platform API, `user` MAY be `address(0)` and the allowlisted platform relayer is accountable for the `accountId` mapping.
 - `contentHash`, `metadataHash`, `pieceCidHash`, `retrievalUrlHash`, and `receiptHash` are hashes or commitments. Full strings MAY be emitted in events by offchain services, but contract storage should remain compact.
 - `idempotencyKey` is unique per `accountId` for upload creation. Reusing it MUST revert with `DuplicateIdempotencyKey`.
 - `objectId` is a monotonically increasing `uint256` assigned by the registry.
@@ -492,7 +492,7 @@ struct AccountUsage {
 
 struct CopyReceipt {
   uint256 providerId;
-  uint256 dataSetId;
+  uint256 datasetId;
   uint256 pieceId;
   bytes32 addPieceTxHash;
   bytes32 retrievalUrlHash;
@@ -522,7 +522,7 @@ struct DatasetRecord {
   bytes32 accountId;
   address payer;
   uint256 providerId;
-  uint256 dataSetId;
+  uint256 datasetId;
   bytes32 storageClass;
   bool withCDN;
   uint64 createdAt;
@@ -536,6 +536,7 @@ struct PolicyConfig {
   uint256 maxCostPerUpload;
   uint256 maxActiveBytesPerAccount;
   uint32 defaultRequestTtl;
+  bool allowFailureCharges;
 }
 ```
 
@@ -575,7 +576,7 @@ event UploadFinalized(
 event CopyRecorded(
   uint256 indexed objectId,
   uint256 indexed providerId,
-  uint256 indexed dataSetId,
+  uint256 indexed datasetId,
   uint256 pieceId,
   bytes32 addPieceTxHash,
   bytes32 retrievalUrlHash,
@@ -625,11 +626,13 @@ event PolicyUpdated(bytes32 indexed configHash);
 event DatasetRecorded(
   bytes32 indexed accountId,
   uint256 indexed providerId,
-  uint256 indexed dataSetId,
+  uint256 indexed datasetId,
   address payer,
   bytes32 storageClass,
   bool withCDN
 );
+
+event RelayerUpdated(address indexed relayer, bool allowed);
 ```
 
 #### 6.7.5 Custom errors
@@ -685,15 +688,18 @@ function setCoordinator(
 
 function setPolicy(PolicyConfig calldata policy) external;
 
+function setRelayer(address relayer, bool allowed) external;
+
 function recordDataset(DatasetRecord calldata dataset) external;
 
 function getStorageObject(uint256 objectId) external view returns (StorageObject memory);
 function getAccountUsage(bytes32 accountId) external view returns (AccountUsage memory);
 function getCopyReceipts(uint256 objectId) external view returns (CopyReceipt[] memory);
+function isRelayer(address relayer) external view returns (bool);
 function getDatasetRecord(
   bytes32 accountId,
   uint256 providerId,
-  uint256 dataSetId
+  uint256 datasetId
 ) external view returns (DatasetRecord memory);
 function objectByIdempotencyKey(
   bytes32 accountId,
@@ -703,11 +709,11 @@ function objectByIdempotencyKey(
 
 #### 6.7.7 Access rules
 
-- `requestUpload` MAY be called by the user directly, an authorized relayer with a valid `userSignature`, or an authorized platform relayer for API-authenticated users. It MUST reject paused state, invalid policy, expired deadlines, reused idempotency keys, and insufficient quota or credit.
+- `requestUpload` MAY be called by the user directly, any caller relaying a valid `userSignature`, or an allowlisted platform relayer for API-authenticated users. Platform relayers are allowlisted through `setRelayer`; when `userSignature` is empty, `msg.sender` MUST be an allowlisted relayer and the call MUST be treated as a platform-authenticated API request for `params.accountId`.
 - `startUpload`, `finalizeUpload`, `failUpload`, and `recordDataset` are coordinator-only in v1. The caller MUST be allowlisted and unexpired under `CoordinatorPolicy`.
-- `cancelUpload` MAY be called by the user, an authorized relayer for that account, or an admin while the object is `Requested` or `Uploading`.
+- `cancelUpload` MAY be called by the user, an allowlisted platform relayer for that account, or an admin while the object is `Requested` or `Uploading`.
 - `expireUpload` MAY be called by anyone after `requestExpiresAt` while the object is `Requested` or `Uploading`.
-- `setCoordinator` and `setPolicy` are admin-only.
+- `setCoordinator`, `setPolicy`, and `setRelayer` are admin-only.
 
 #### 6.7.8 State transitions
 
@@ -736,11 +742,12 @@ function objectByIdempotencyKey(
 - `startUpload` MUST revert after expiry. The coordinator should ask the platform API to create a new request when a user still wants the upload.
 - `finalizeUpload` MUST revert after expiry in v1. This keeps expired reservations from becoming chargeable after the user-visible deadline.
 - `expireUpload` releases `reservedCost`, preserves the object record for audit, emits `UsageReleased` and `UploadExpired`, and leaves active usage unchanged.
-- `failUpload` releases unused reservation and MAY record `chargedCost` only when policy allows charging for provider-accepted partial work. `chargedCost` MUST NOT exceed `reservedCost`.
+- `failUpload` releases unused reservation and MAY record `chargedCost` only when `policy.allowFailureCharges == true` for provider-accepted partial work. If `policy.allowFailureCharges == false`, `chargedCost` MUST be zero. `chargedCost` MUST NOT exceed `reservedCost`.
 - Partial finalization charges and increments active bytes only for completed copies. Failed or missing copies remain visible through `requestedCopies - completedCopies`.
 - If bytes were uploaded to a provider but not committed to FOC before expiry or failure, the Platform Contract does not count them as active usage. Cleanup and provider-side retry are coordinator responsibilities.
 - Duplicate PieceCID values across different `objectId`s are allowed in v1. Dedupe is a future policy feature and MUST NOT silently merge object ownership or billing records.
 - `actualCost` MUST be less than or equal to `maxCost`; otherwise `finalizeUpload` reverts with `CostExceedsMaximum`.
+- `finalizeUpload` MUST reject `receipt.receiptHash == bytes32(0)` with `ZeroReceiptHash` for every `UploadFinalizationStatus`. If no richer offchain receipt artifact exists, the coordinator MUST set `receiptHash` to a deterministic hash of the v1 receipt tuple.
 
 #### 6.7.10 Platform API surface
 

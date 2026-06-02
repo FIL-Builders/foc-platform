@@ -36,7 +36,7 @@ This repository is currently a draft specification and planning workspace.
 
 See [`spec.md`](./spec.md).
 
-The design is not production-ready and does not yet prescribe a single implementation path. It is intended to clarify the model, identify viable payment and signer options, and guide early compatibility work against FOC.
+The design is not production-ready, but it now selects a v1 implementation path to validate: platform EOA/KMS payer, FOC session-key coordinator, hosted coordination, and onchain request/object/usage/receipt state. Future payment and coordinator modes remain compatibility-gated by Phase 0 evidence.
 
 ## Related projects
 
