@@ -1,8 +1,8 @@
 # FOC Onchain Platform Stack Specification
 
-Status: Draft / option-preserving planning spec  
+Status: Draft / v1 finalization spec
 Owner: FOC client engineering  
-Last updated: 2026-05-28  
+Last updated: 2026-06-01
 Related repos:
 
 - `~/dev/filozone/synapse-sdk`
@@ -22,7 +22,34 @@ The target model is:
 4. User-level usage, quotas, prepaid balances, billing events, and object ownership are tracked primarily onchain.
 5. Offchain infrastructure remains as stateless and replaceable as possible. Its main responsibilities are byte movement, FOC SDK execution, relaying, optional indexing, and operational coordination.
 
-This is intentionally an early, option-preserving planning spec. It describes viable architecture shapes without prematurely selecting final implementations. Future revisions may narrow the architecture after compatibility testing, prototypes, and product validation.
+This revision selects a concrete v1 path while preserving future modes as explicit compatibility gates. Production contract work should follow the v1 decisions below unless the Phase 0 compatibility report records evidence that requires a change.
+
+## V1 Architecture Decisions
+
+The v1 platform stack uses a **platform EOA/KMS payer, FOC session keys, a platform-hosted coordinator, and platform contracts for request, object, usage, and receipt state**.
+
+These decisions are normative for v1:
+
+1. **FOC payer/root:** the platform operates an EOA or KMS-managed wallet as the FOC root/payer. That wallet funds Filecoin Pay, approves the required FOC operators, owns or controls FOC datasets, and grants coordinator session keys.
+2. **Coordinator authority:** a platform-hosted coordinator is the only v1 executor. It is allowlisted in the Platform Contract Stack and uses a FOC session key authorized by the platform root wallet. Direct root signing is an emergency/operator fallback, not the default execution path.
+3. **Contract responsibility:** platform contracts do not move bytes and do not directly pay FOC in v1. They record upload requests, object ownership, quota/cost reservations, compact FOC receipts, usage counters, coordinator allowlists, and reconciliation anchors.
+4. **Billing mode:** v1 supports quota and credit-style accounting first. The platform pays FOC externally through the EOA/KMS root and records chargeable usage onchain. User USDFC custody in a Platform Treasury is deferred until Phase 0 proves the contract-treasury path.
+5. **Dataset attribution:** FOC datasets should be attributable to one platform account and provider tuple. The v1 target is one dataset namespace per `(accountId, providerId, cdnMode, storageClass)` when the underlying FOC surface allows it.
+6. **Receipts:** v1 stores compact receipt fields in contract storage and emits richer event detail. A finalized platform object must be reconcilable to FOC provider, dataset, piece, payer, and tx evidence without requiring coordinator-private state.
+7. **Upload lifecycle:** v1 upload requests are async. The platform API creates an onchain request, the coordinator uploads and commits through FOC, then the coordinator finalizes the request with a receipt or marks it failed.
+8. **Authorization:** v1 accepts direct user transactions, authorized relays, or EIP-712 user signatures. If a normal platform API authenticates users offchain, the relayer is accountable for mapping that API user to an opaque onchain `accountId`.
+9. **Token Host:** Token Host generation is not a v1 dependency. Generated registry/admin/UI support remains a post-v1 integration path unless it accelerates a demo without changing the contract surface.
+10. **Phase 0 gate:** before production contract implementation, the team must complete the Phase 0 Compatibility Report Template in section 13.1. The report must include transaction hashes or logs for every required compatibility claim.
+
+The following modes are explicitly **not** v1 defaults and require Phase 0 evidence plus a spec update before implementation:
+
+- Platform smart account as FOC root/payer.
+- Platform treasury contract directly holding USDFC and paying FOC.
+- User wallet pays FOC directly while platform only records usage.
+- Browser direct-to-FOC upload as the primary data plane.
+- Bring-your-own or user-local coordinator execution.
+- Challenge/proof-based finalization replacing trusted coordinator finalization.
+- Shared cross-user FOC datasets as the default allocation strategy.
 
 ## 2. Product Goal
 
@@ -91,15 +118,7 @@ Contracts SHOULD own policy and accounting. Offchain coordinators SHOULD perform
 
 ### 3.4 Flexible wallet model
 
-The stack MUST keep wallet and payment modes configurable until FOC contract-wallet compatibility is confirmed.
-
-Supported target modes MAY include:
-
-1. platform EOA/KMS wallet pays FOC,
-2. platform smart account pays FOC,
-3. platform treasury contract pays FOC directly,
-4. user wallet pays FOC directly while the platform records usage,
-5. hybrid prepaid/user-balance models.
+The v1 wallet model is platform EOA/KMS payer with FOC session keys. The stack MUST keep future wallet and payment modes isolated behind explicit compatibility gates so that smart-account, treasury, user-pays, and hybrid prepaid modes can be added without changing v1 object and usage semantics.
 
 ### 3.5 Auditability over full trustlessness
 
@@ -209,6 +228,8 @@ In this spec, **Platform Contract** means a platform-specific onchain contract d
 
 The contract stack MAY be implemented as one contract for an MVP or as multiple contracts for modularity.
 
+Sections 6.1 through 6.6 describe component responsibilities and design context. Section 6.7 is the normative v1 contract/API surface.
+
 ### 6.1 `PlatformStorageRegistry`
 
 Tracks storage objects and upload lifecycle.
@@ -232,7 +253,7 @@ struct StorageObject {
 }
 ```
 
-Potential statuses:
+Potential statuses from earlier design exploration. These are not the v1 status values; the normative v1 `UploadStatus` enum is defined in section 6.7.2.
 
 ```solidity
 enum UploadStatus {
@@ -248,7 +269,7 @@ enum UploadStatus {
 }
 ```
 
-Open options:
+Non-normative storage options considered before the v1 surface in section 6.7:
 
 - Store `pieceCid` as a string.
 - Store PieceCID as bytes or multihash parts.
@@ -384,6 +405,367 @@ cdn = true | false
 ```
 
 This spec does not currently target shared cross-user datasets as a primary product mode. They may be reconsidered later for cost optimization, but only if user-level auditability and billing attribution remain clear.
+
+### 6.7 V1 Contract/API Surface
+
+The v1 implementation SHOULD start as one `FocPlatformRegistry` contract or as a small set of contracts that expose the same external surface. Splitting storage, usage, policy, and intent routing is an implementation choice; the ABI below is the v1 contract.
+
+#### 6.7.1 Identifiers and storage policy
+
+- `accountId` is a nonzero `bytes32` opaque platform account identifier, such as `keccak256(platformId, tenantId, userId)`. It MUST NOT encode raw email, name, customer id, or other sensitive PII.
+- `user` is the platform user's wallet address when one exists. If the user is only known to a platform API, `user` MAY be `address(0)` and the allowlisted platform relayer is accountable for the `accountId` mapping.
+- `contentHash`, `metadataHash`, `pieceCidHash`, `retrievalUrlHash`, and `receiptHash` are hashes or commitments. Full strings MAY be emitted in events by offchain services, but contract storage should remain compact.
+- `idempotencyKey` is unique per `accountId` for upload creation. Reusing it MUST revert with `DuplicateIdempotencyKey`.
+- `objectId` is a monotonically increasing `uint256` assigned by the registry.
+
+#### 6.7.2 Enums
+
+```solidity
+enum UploadStatus {
+  None,
+  Requested,
+  Uploading,
+  Committed,
+  Partial,
+  Failed,
+  Cancelled,
+  Expired,
+  Deleted
+}
+
+enum UploadFinalizationStatus {
+  Committed,
+  Partial,
+  Failed
+}
+```
+
+#### 6.7.3 Structs
+
+```solidity
+struct RequestUploadParams {
+  bytes32 accountId;
+  address user;
+  bytes32 idempotencyKey;
+  bytes32 contentHash;
+  bytes32 metadataHash;
+  uint64 size;
+  uint8 requestedCopies;
+  bool withCDN;
+  uint256 maxCost;
+  uint64 requestExpiresAt;
+}
+
+struct StorageObject {
+  uint256 objectId;
+  bytes32 accountId;
+  address user;
+  bytes32 idempotencyKey;
+  bytes32 contentHash;
+  bytes32 metadataHash;
+  bytes32 pieceCidHash;
+  uint64 size;
+  uint8 requestedCopies;
+  uint8 completedCopies;
+  bool withCDN;
+  uint256 maxCost;
+  uint256 reservedCost;
+  uint256 actualCost;
+  UploadStatus status;
+  address coordinator;
+  uint64 requestExpiresAt;
+  uint64 createdAt;
+  uint64 updatedAt;
+  bytes32 receiptHash;
+}
+
+struct AccountUsage {
+  uint256 activeBytes;
+  uint256 activeObjects;
+  uint256 reservedCost;
+  uint256 totalActualCost;
+  uint256 totalUploadedBytes;
+  uint256 totalRequestedUploads;
+  uint256 totalFinalizedUploads;
+  uint256 totalFailedUploads;
+}
+
+struct CopyReceipt {
+  uint256 providerId;
+  uint256 datasetId;
+  uint256 pieceId;
+  bytes32 addPieceTxHash;
+  bytes32 retrievalUrlHash;
+  bool isNewDataSet;
+}
+
+struct UploadReceipt {
+  UploadFinalizationStatus finalizationStatus;
+  address payer;
+  bytes32 pieceCidHash;
+  uint64 size;
+  uint8 requestedCopies;
+  uint8 completedCopies;
+  uint256 actualCost;
+  bytes32 receiptHash;
+  CopyReceipt[] copies;
+}
+
+struct CoordinatorPolicy {
+  bool allowed;
+  uint64 maxFinalizeDelay;
+  uint64 sessionKeyExpiresAt;
+  bytes32 permissionsHash;
+}
+
+struct DatasetRecord {
+  bytes32 accountId;
+  address payer;
+  uint256 providerId;
+  uint256 datasetId;
+  bytes32 storageClass;
+  bool withCDN;
+  uint64 createdAt;
+  uint64 updatedAt;
+}
+
+struct PolicyConfig {
+  bool paused;
+  uint64 maxObjectSize;
+  uint8 maxCopies;
+  uint256 maxCostPerUpload;
+  uint256 maxActiveBytesPerAccount;
+  uint32 defaultRequestTtl;
+  bool allowFailureCharges;
+}
+```
+
+#### 6.7.4 Events
+
+```solidity
+event UploadRequested(
+  uint256 indexed objectId,
+  bytes32 indexed accountId,
+  address indexed user,
+  bytes32 idempotencyKey,
+  bytes32 contentHash,
+  bytes32 metadataHash,
+  uint64 size,
+  uint8 requestedCopies,
+  bool withCDN,
+  uint256 maxCost,
+  uint64 requestExpiresAt
+);
+
+event UploadStarted(
+  uint256 indexed objectId,
+  address indexed coordinator,
+  uint64 startedAt
+);
+
+event UploadFinalized(
+  uint256 indexed objectId,
+  bytes32 indexed accountId,
+  UploadFinalizationStatus finalizationStatus,
+  bytes32 pieceCidHash,
+  uint8 completedCopies,
+  uint256 actualCost,
+  bytes32 receiptHash
+);
+
+event CopyRecorded(
+  uint256 indexed objectId,
+  uint256 indexed providerId,
+  uint256 indexed datasetId,
+  uint256 pieceId,
+  bytes32 addPieceTxHash,
+  bytes32 retrievalUrlHash,
+  bool isNewDataSet
+);
+
+event UploadFailed(
+  uint256 indexed objectId,
+  bytes32 indexed accountId,
+  bytes32 reasonHash,
+  uint256 chargedCost
+);
+
+event UploadCancelled(uint256 indexed objectId, bytes32 indexed accountId);
+event UploadExpired(uint256 indexed objectId, bytes32 indexed accountId);
+
+event UsageReserved(
+  bytes32 indexed accountId,
+  uint256 indexed objectId,
+  uint256 reservedCost,
+  uint256 activeBytesBefore
+);
+
+event UsageFinalized(
+  bytes32 indexed accountId,
+  uint256 indexed objectId,
+  uint256 actualCost,
+  uint256 activeBytesDelta
+);
+
+event UsageReleased(
+  bytes32 indexed accountId,
+  uint256 indexed objectId,
+  uint256 releasedCost
+);
+
+event CoordinatorUpdated(
+  address indexed coordinator,
+  bool allowed,
+  uint64 maxFinalizeDelay,
+  uint64 sessionKeyExpiresAt,
+  bytes32 permissionsHash
+);
+
+event PolicyUpdated(bytes32 indexed configHash);
+
+event DatasetRecorded(
+  bytes32 indexed accountId,
+  uint256 indexed providerId,
+  uint256 indexed datasetId,
+  address payer,
+  bytes32 storageClass,
+  bool withCDN
+);
+
+event RelayerUpdated(address indexed relayer, bool allowed);
+```
+
+#### 6.7.5 Custom errors
+
+```solidity
+error InvalidAccount();
+error InvalidUser();
+error InvalidPolicy();
+error InvalidSignature();
+error UnauthorizedCoordinator(address caller);
+error UnauthorizedCaller(address caller);
+error Paused();
+error RequestExpired(uint256 objectId);
+error RequestNotExpired(uint256 objectId);
+error TerminalUploadStatus(uint256 objectId, UploadStatus status);
+error InvalidUploadStatus(uint256 objectId, UploadStatus expected, UploadStatus actual);
+error DuplicateIdempotencyKey(bytes32 accountId, bytes32 idempotencyKey, uint256 existingObjectId);
+error CostExceedsMaximum(uint256 actualCost, uint256 maxCost);
+error CopyCountMismatch(uint8 completedCopies, uint256 receiptCopies);
+error ReceiptSizeMismatch(uint64 receiptSize, uint64 objectSize);
+error ZeroReceiptHash();
+```
+
+#### 6.7.6 External functions
+
+```solidity
+function requestUpload(
+  RequestUploadParams calldata params,
+  bytes calldata userSignature
+) external returns (uint256 objectId);
+
+function startUpload(uint256 objectId) external;
+
+function finalizeUpload(
+  uint256 objectId,
+  UploadReceipt calldata receipt
+) external;
+
+function failUpload(
+  uint256 objectId,
+  bytes32 reasonHash,
+  uint256 chargedCost
+) external;
+
+function cancelUpload(uint256 objectId) external;
+
+function expireUpload(uint256 objectId) external;
+
+function setCoordinator(
+  address coordinator,
+  CoordinatorPolicy calldata policy
+) external;
+
+function setPolicy(PolicyConfig calldata policy) external;
+
+function setRelayer(address relayer, bool allowed) external;
+
+function recordDataset(DatasetRecord calldata dataset) external;
+
+function getStorageObject(uint256 objectId) external view returns (StorageObject memory);
+function getAccountUsage(bytes32 accountId) external view returns (AccountUsage memory);
+function getCopyReceipts(uint256 objectId) external view returns (CopyReceipt[] memory);
+function isRelayer(address relayer) external view returns (bool);
+function getDatasetRecord(
+  bytes32 accountId,
+  uint256 providerId,
+  uint256 datasetId
+) external view returns (DatasetRecord memory);
+function objectByIdempotencyKey(
+  bytes32 accountId,
+  bytes32 idempotencyKey
+) external view returns (uint256 objectId);
+```
+
+#### 6.7.7 Access rules
+
+- `requestUpload` MAY be called by the user directly, any caller relaying a valid `userSignature`, or an allowlisted platform relayer for API-authenticated users. Platform relayers are allowlisted through `setRelayer`; when `userSignature` is empty, `msg.sender` MUST be an allowlisted relayer and the call MUST be treated as a platform-authenticated API request for `params.accountId`.
+- `startUpload`, `finalizeUpload`, `failUpload`, and `recordDataset` are coordinator-only in v1. The caller MUST be allowlisted and unexpired under `CoordinatorPolicy`.
+- `cancelUpload` MAY be called by the user, an allowlisted platform relayer for that account, or an admin while the object is `Requested` or `Uploading`.
+- `expireUpload` MAY be called by anyone after `requestExpiresAt` while the object is `Requested` or `Uploading`.
+- `setCoordinator`, `setPolicy`, and `setRelayer` are admin-only.
+
+#### 6.7.8 State transitions
+
+| From | To | Function | Required conditions |
+| --- | --- | --- | --- |
+| `None` | `Requested` | `requestUpload` | Policy passes, idempotency key unused, quota or credit reserved, request not expired. |
+| `Requested` | `Uploading` | `startUpload` | Caller is active coordinator, request not expired. |
+| `Requested` | `Committed` | `finalizeUpload` | Caller is active coordinator, receipt status is `Committed`, completed copies equal requested copies. |
+| `Uploading` | `Committed` | `finalizeUpload` | Same as above. |
+| `Requested` | `Partial` | `finalizeUpload` | Receipt status is `Partial`, completed copies are greater than zero and less than requested copies. |
+| `Uploading` | `Partial` | `finalizeUpload` | Same as above. |
+| `Requested` | `Failed` | `failUpload` or `finalizeUpload` | No completed copies, or coordinator reports a terminal failure reason. |
+| `Uploading` | `Failed` | `failUpload` or `finalizeUpload` | Same as above. |
+| `Requested` | `Cancelled` | `cancelUpload` | Authorized caller, no final receipt has been recorded. |
+| `Uploading` | `Cancelled` | `cancelUpload` | Authorized caller, coordinator has not finalized a receipt. |
+| `Requested` | `Expired` | `expireUpload` | `block.timestamp > requestExpiresAt`. |
+| `Uploading` | `Expired` | `expireUpload` | `block.timestamp > requestExpiresAt` and no final receipt has been recorded. |
+| `Committed` | `Deleted` | future delete flow | Not in v1 upload scope. |
+| `Partial` | `Deleted` | future delete flow | Not in v1 upload scope. |
+
+`Committed`, `Partial`, `Failed`, `Cancelled`, `Expired`, and `Deleted` are terminal for upload finalization. A terminal object MUST NOT be finalized, failed, cancelled, or expired again.
+
+#### 6.7.9 Timeout and failure behavior
+
+- Every request MUST have `requestExpiresAt`. If the caller supplies `0`, the contract SHOULD set `requestExpiresAt = block.timestamp + policy.defaultRequestTtl`.
+- `startUpload` MUST revert after expiry. The coordinator should ask the platform API to create a new request when a user still wants the upload.
+- `finalizeUpload` MUST revert after expiry in v1. This keeps expired reservations from becoming chargeable after the user-visible deadline.
+- `expireUpload` releases `reservedCost`, preserves the object record for audit, emits `UsageReleased` and `UploadExpired`, and leaves active usage unchanged.
+- `failUpload` releases unused reservation and MAY record `chargedCost` only when `policy.allowFailureCharges == true` for provider-accepted partial work. If `policy.allowFailureCharges == false`, `chargedCost` MUST be zero. `chargedCost` MUST NOT exceed `reservedCost`.
+- Partial finalization charges and increments active bytes only for completed copies. Failed or missing copies remain visible through `requestedCopies - completedCopies`.
+- If bytes were uploaded to a provider but not committed to FOC before expiry or failure, the Platform Contract does not count them as active usage. Cleanup and provider-side retry are coordinator responsibilities.
+- Duplicate PieceCID values across different `objectId`s are allowed in v1. Dedupe is a future policy feature and MUST NOT silently merge object ownership or billing records.
+- `actualCost` MUST be less than or equal to `maxCost`; otherwise `finalizeUpload` reverts with `CostExceedsMaximum`.
+- `finalizeUpload` MUST reject `receipt.receiptHash == bytes32(0)` with `ZeroReceiptHash` for every `UploadFinalizationStatus`. If no richer offchain receipt artifact exists, the coordinator MUST set `receiptHash` to a deterministic hash of the v1 receipt tuple.
+
+#### 6.7.10 Platform API surface
+
+The platform API should map cleanly to the contract surface:
+
+```http
+POST /storage/upload-requests
+POST /storage/uploads/:objectId/bytes
+GET  /storage/uploads/:objectId/status
+GET  /storage/objects/:objectId
+GET  /storage/usage/:accountId
+```
+
+`POST /storage/upload-requests` creates or relays `requestUpload`, returning `objectId`, `accountId`, `status`, `requestExpiresAt`, and the byte-upload endpoint. It MUST return a duplicate-idempotency error rather than creating a second object for the same account/key.
+
+`POST /storage/uploads/:objectId/bytes` is coordinator-facing in v1. It accepts bytes, validates the declared size/content commitment when available, executes Synapse/FOC upload and commit, and then calls `finalizeUpload` or `failUpload`.
+
+Status and read endpoints are indexer/API conveniences. Their data MUST be reconstructable from contract views and events.
 
 ## 7. FOC Session-Key Primitive
 
@@ -571,11 +953,13 @@ It should be used for **operator delegation into FOC**, while Platform Contracts
 
 ## 8. FOC Integration Modes
 
-The stack MUST support multiple FOC payment and execution modes until compatibility is proven.
+Mode A is the selected v1 FOC integration mode. The remaining modes describe future targets that require Phase 0 evidence and a spec update before they become implementation scope.
 
 ### 8.1 Mode A: Platform EOA/KMS pays FOC
 
 A platform-managed EOA signs Synapse SDK operations and pays FOC. Platform Contracts record usage and receipts.
+
+V1 status: selected implementation target.
 
 Pros:
 
@@ -594,6 +978,8 @@ Cons:
 
 A smart account is the FOC payer and uses account abstraction or ERC-1271-compatible signing.
 
+V1 status: compatibility-gated.
+
 Pros:
 
 - stronger onchain custody/accounting story,
@@ -610,6 +996,8 @@ Cons:
 
 A Platform Treasury or Platform Contract holds USDFC and directly calls Filecoin Pay / Warm Storage contracts.
 
+V1 status: compatibility-gated.
+
 Pros:
 
 - most onchain-native model,
@@ -625,6 +1013,8 @@ Cons:
 
 User wallets perform FOC payments/operations directly while Platform Contracts record attribution.
 
+V1 status: deferred.
+
 Pros:
 
 - less platform custody,
@@ -639,6 +1029,8 @@ Cons:
 ### 8.5 Mode E: Hybrid
 
 The platform supports multiple modes per tenant or deployment.
+
+V1 status: deferred.
 
 Examples:
 
@@ -1323,57 +1715,38 @@ Caveats to test:
 
 ### 9.9 Coordinator trust model
 
-Open options:
+V1 uses a single platform-operated or platform-managed allowlisted coordinator. The following remain post-v1 options:
 
-1. single platform-operated coordinator,
-2. multiple allowlisted coordinators,
-3. coordinator staking/slashing later,
-4. user-submitted finalization with verifiable FOC receipts,
-5. optimistic finalization with challenge window.
+1. multiple allowlisted coordinators,
+2. coordinator staking/slashing,
+3. user-submitted finalization with verifiable FOC receipts,
+4. optimistic finalization with challenge window.
 
-MVP may use a trusted coordinator with admin allowlisting.
+The v1 coordinator is trusted for finalization but must leave enough onchain evidence for reconciliation and audit.
 
 ### 9.10 Finalization receipt design
 
-The Platform Contract Stack needs a compact but useful receipt shape for `finalizeUpload(...)`. The exact storage layout remains open, but implementations should preserve enough information to reconstruct the user-facing object, audit FOC transactions, and reconcile platform usage with FOC payment state.
+The Platform Contract Stack needs a compact but useful receipt shape for `finalizeUpload(...)`. The normative v1 receipt structs and events are defined in section 6.7. This section explains the rationale: implementations should preserve enough information to reconstruct the user-facing object, audit FOC transactions, and reconcile platform usage with FOC payment state.
 
-Provisional receipt shape:
+The v1 receipt model stores compact hashes and ids in contract storage and emits copy-level event detail. The minimum receipt evidence is:
 
-```solidity
-enum UploadFinalizationStatus {
-  Committed,
-  Partial,
-  Failed
-}
+- PieceCID hash,
+- object size,
+- requested and completed copy counts,
+- payer address,
+- provider ids,
+- dataset ids,
+- piece ids,
+- add-piece or commit transaction hashes,
+- retrieval URL hashes when retrieval URLs are known,
+- receipt hash for any richer offchain receipt artifact.
 
-struct CopyReceipt {
-  uint256 providerId;
-  uint256 dataSetId;
-  uint256 pieceId;
-  bytes32 addPieceTxHash;
-  bytes32 retrievalUrlHash;
-}
+Post-v1 receipt choices:
 
-struct UploadReceipt {
-  bytes32 pieceCidHash;
-  uint256 size;
-  uint8 requestedCopies;
-  uint8 completedCopies;
-  uint256 estimatedCost;
-  uint256 actualCost;
-  UploadFinalizationStatus status;
-  CopyReceipt[] copies;
-}
-```
-
-Open receipt design choices:
-
-- store full PieceCID strings or only `pieceCidHash` plus event data,
-- store all copy receipts in contract storage or only emit them in events,
-- store retrieval URLs, retrieval URL hashes, or derive retrieval URLs offchain,
-- verify FOC contract events onchain if feasible,
-- rely on allowlisted coordinator assertion for MVP,
-- include FOC payment rail IDs directly in the receipt or reconstruct them from dataset IDs and FOC views.
+- whether any production mode needs full PieceCID strings in contract storage rather than events or offchain receipt artifacts,
+- whether all copy receipts must remain in storage or can move to events under a cheaper indexing model,
+- whether FOC contract events can be verified onchain,
+- whether FOC payment rail IDs should be stored directly or reconstructed from dataset IDs and FOC views.
 
 ## 10. Token Host Builder Integration
 
@@ -1508,7 +1881,7 @@ Potential package split:
 
 ## 13. Compatibility Spike Requirements
 
-Before choosing a final wallet/payment mode, run compatibility tests on Calibration.
+Before production contract implementation, run compatibility tests on Calibration and complete the Phase 0 Compatibility Report Template below. The v1 default remains platform EOA/KMS payer plus session-key coordinator unless the report proves that this path is not viable.
 
 Required questions:
 
@@ -1542,23 +1915,116 @@ Recommended test cases:
 
 Deliverable:
 
-- a short compatibility report,
-- example transaction hashes,
+- a completed compatibility report using section 13.1,
+- transaction hashes or logs for every required test,
 - recommended v1 payment mode,
+- recommended v1 coordinator mode,
 - required SDK changes, if any.
+
+### 13.1 Phase 0 Compatibility Report Template
+
+Each Phase 0 run MUST produce a Markdown report using this template. The report is a production-readiness gate for the v1 spec.
+
+```markdown
+# Phase 0 Compatibility Report
+
+Date:
+Author/operator:
+Network:
+Chain ID:
+FOC environment:
+foc-platform commit:
+synapse-sdk commit/version:
+foc-cli commit/version:
+foc-storage-mcp commit/version:
+Coordinator branch/commit:
+Platform root/payer address:
+Coordinator session key address:
+SessionKeyRegistry address:
+Warm Storage address:
+Filecoin Pay address:
+USDFC address:
+
+## Final Recommendation
+
+Recommended v1 payment mode: PASS/FAIL - platform EOA/KMS payer
+Recommended v1 coordinator mode: PASS/FAIL - platform-hosted coordinator with FOC session key
+Recommended v1 contract mode: PASS/FAIL - registry/usage/receipt contracts, no contract treasury custody
+Recommended v1 dataset mode: PASS/FAIL - per-account/provider dataset attribution
+Modes gated out of v1:
+Required SDK changes before v1:
+Required contract changes before v1:
+Required operator runbook changes before v1:
+
+## Required Compatibility Matrix
+
+| ID | Question/test | Required evidence | Result | Tx hash(es) / log link(s) | SDK gaps | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| T1 | EOA root + session-key coordinator upload | Root funds/approves FOC, grants session key, coordinator uploads and commits one object. | PASS/FAIL |  |  |  |
+| T2 | Per-user dataset attribution | Two accountIds upload through same payer; receipts identify separate account/provider dataset attribution. | PASS/FAIL |  |  |  |
+| T3 | Compact receipt finalization | Platform registry finalizes with piece hash, provider id, dataset id, piece id, payer, add-piece tx hash, and receipt hash. | PASS/FAIL |  |  |  |
+| T4 | Reconciliation | A report reconstructs platform object/usage state from Platform Contract events and FOC dataset/payment state. | PASS/FAIL |  |  |  |
+| T5 | Session-key expiry/revocation | Coordinator action fails after expiry or revoke; refreshed authorization recovers cleanly. | PASS/FAIL |  |  |  |
+| F1 | Contract root session-key authorization | Contract or smart account calls `SessionKeyRegistry.login(...)`; EOA session key attempts FOC operation for that root. | PASS/FAIL/N/A |  |  | Future-mode gate |
+| F2 | Contract treasury payment path | Contract holds USDFC, approves/deposits into Filecoin Pay, and attempts payer flow. | PASS/FAIL/N/A |  |  | Future-mode gate |
+| F3 | Smart account / ERC-1271 path | Smart account signs or validates required FOC typed data and attempts dataset/add-piece flow. | PASS/FAIL/N/A |  |  | Future-mode gate |
+| F4 | Direct browser-to-FOC upload | Browser uploads directly to provider; CORS, auth, status, and failure behavior are recorded. | PASS/FAIL/N/A |  |  | Future-mode gate |
+
+## Required Transaction Evidence
+
+- Session-key login tx:
+- Filecoin Pay deposit/approval tx:
+- Dataset creation tx(s):
+- Add-piece/commit tx(s):
+- Platform upload-request tx:
+- Platform finalize/fail tx:
+- Session-key revoke or expiry evidence:
+- Reconciliation report artifact:
+
+If a required action does not create a transaction, link the SDK log, provider response, or script output and explain why no tx exists.
+
+## SDK and Tooling Gaps
+
+| Repo | Gap | Blocks v1? | Proposed fix | Owner | Issue/PR |
+| --- | --- | --- | --- | --- | --- |
+| synapse-sdk |  | YES/NO |  |  |  |
+| foc-cli |  | YES/NO |  |  |  |
+| foc-storage-mcp |  | YES/NO |  |  |  |
+| foc-platform |  | YES/NO |  |  |  |
+
+## Failure and Timeout Findings
+
+- Upload request expiry behavior:
+- Coordinator retry behavior:
+- Partial-copy behavior:
+- Provider failure behavior:
+- Session-key expiry/revoke behavior:
+- Reconciliation mismatch behavior:
+
+## Decision Log
+
+| Decision | Ship in v1 / Gate / Defer | Evidence | Follow-up |
+| --- | --- | --- | --- |
+| Platform EOA/KMS payer | Ship in v1 / Gate / Defer |  |  |
+| Session-key coordinator | Ship in v1 / Gate / Defer |  |  |
+| Contract treasury payer | Ship in v1 / Gate / Defer |  |  |
+| Smart-account payer | Ship in v1 / Gate / Defer |  |  |
+| Direct browser upload | Ship in v1 / Gate / Defer |  |  |
+| Token Host generation | Ship in v1 / Gate / Defer |  |  |
+```
 
 ## 14. MVP Options
 
-### 14.1 MVP Option 1: Fast path, EOA payer + onchain registry
+### 14.1 Selected v1 target: Fast path, EOA payer + onchain registry
 
 - Platform KMS/EOA pays FOC.
 - Contracts track users, objects, requests, and usage.
 - Coordinator is trusted and allowlisted.
-- Token Host generates registry/usage UI.
+- Token Host may later generate registry/usage UI, but is not required for v1.
 
-This is likely the fastest working product.
+This is the canonical v1 implementation path for this spec revision. Token Host generation is useful for demos and admin UI, but the production contract/API surface in section 6.7 is the source of truth.
 
-### 14.2 MVP Option 2: Prepaid treasury + EOA executor
+### 14.2 Post-v1 option: Prepaid treasury + EOA executor
 
 - Users deposit USDFC into platform treasury.
 - Contract reserves/debits user balances.
@@ -1567,7 +2033,7 @@ This is likely the fastest working product.
 
 This gives stronger billing/accounting semantics.
 
-### 14.3 MVP Option 3: Smart-account payer
+### 14.3 Compatibility-gated option: Smart-account payer
 
 - Platform smart account pays FOC.
 - Contracts/policies control smart account execution.
@@ -1575,7 +2041,7 @@ This gives stronger billing/accounting semantics.
 
 This is more onchain-native but higher risk.
 
-### 14.4 MVP Option 4: Token Host generated demo app
+### 14.4 Demo/generator option: Token Host generated demo app
 
 - Use Token Host Builder to generate a Filecoin Calibration demo app.
 - Image uploads go through FOC coordinator.
@@ -1599,13 +2065,13 @@ Required protections:
 - duplicate PieceCID/object handling policy,
 - cost quote slippage controls.
 
-Open decisions:
+Post-v1 security decisions:
 
 - whether finalization needs a challenge period,
-- whether receipts must be independently verifiable onchain,
+- whether receipts must be independently verifiable onchain instead of coordinator-submitted and reconciled,
 - whether coordinators stake collateral,
-- whether user deposits are refundable immediately,
-- whether failed uploads reserve or release user funds automatically.
+- whether user deposits are refundable immediately in a future treasury mode,
+- whether failed uploads may charge users for provider-accepted partial work beyond the v1 policy in section 6.7.9.
 
 ## 16. Data Minimization
 
@@ -1680,35 +2146,35 @@ Open reconciliation choices:
 
 ## 18. Open Questions
 
-This draft intentionally leaves several choices unresolved. The body of the spec describes the viable shapes; this section names the decision gates that should be closed by compatibility work, prototypes, and product feedback.
+The v1 decisions are defined in the V1 Architecture Decisions section and section 6.7. The remaining questions are post-v1 or compatibility-gated decisions that should be closed by Phase 0 evidence, prototypes, and product feedback.
 
 ### 18.1 Payment, custody, and delegation
 
-1. What should the first supported FOC payer be: platform EOA/KMS, platform smart account, contract treasury, user-pays wallet, or a hybrid model?
-2. Should v1 always use FOC session keys for coordinator execution, or should direct root signing remain a supported operator mode?
+1. Which future FOC payer modes should be added after platform EOA/KMS: platform smart account, contract treasury, user-pays wallet, or a hybrid model?
+2. Should direct root signing remain an emergency operator mode after session-key coordinator execution is stable?
 3. Can a smart account or contract wallet safely be the root identity for FOC session keys and payment rails?
-4. Should a platform-specific contract custody USDFC in v1, or only record usage while an EOA/KMS wallet funds FOC?
+4. What evidence would justify adding contract-custodied USDFC after v1?
 5. How much of FOC payment rail state should be mirrored in the Platform Contract?
 
 ### 18.2 User authorization and billing semantics
 
-1. Should users authorize uploads by sending platform-contract transactions, signing EIP-712 storage intents, authenticating to a normal platform API, or using a sponsored/gasless relay flow?
-2. Should user billing be prepaid, credit-based, quota-only, token-gated/subscription-based, or hybrid?
-3. When should user balances or quotas be reserved and released: request time, byte upload time, FOC commit time, or final receipt time?
+1. Which v1 authorization paths should be required in the first prototype versus documented as supported by the contract surface?
+2. Which post-v1 billing modes should be added first: prepaid, token-gated/subscription-based, or hybrid?
+3. Should any future prepaid balance mode reserve or release funds differently from the v1 quota/credit policy?
 4. What cost-slippage and max-cost guarantees should the user receive before the platform spends FOC funds?
 
 ### 18.3 Coordinator placement and data plane
 
-1. Should the first product default be a platform-hosted coordinator, direct-to-FOC browser upload with platform-delegated signing, or both?
-2. Which coordinator roles can safely run in the browser or user-local environment, and which must remain platform-controlled?
+1. What evidence would justify adding direct-to-FOC browser upload after the platform-hosted coordinator is working?
+2. Which coordinator roles can safely run in the browser or user-local environment in post-v1 deployments, and which must remain platform-controlled?
 3. What enterprise/BYO coordinator model is worth preserving in v1 interfaces even if not implemented immediately?
 4. Should uploads be synchronous from the API perspective, async/event-driven by default, or support both with polling/webhook patterns?
 
 ### 18.4 Receipts, verification, and reconciliation
 
-1. Should the Platform Contract store full PieceCID strings or compact hashes?
-2. Should provider/dataset copy receipts be stored in contract storage, emitted in events, represented as hashes, or verified against FOC contract events?
-3. Is a trusted allowlisted coordinator sufficient for MVP finalization, or is a challenge/proof/user-submitted receipt path required early?
+1. Should any future mode store full PieceCID strings, or should v1 compact hashes remain the long-term default?
+2. Which provider/dataset copy receipt fields should move from events to storage as production query needs become clear?
+3. What evidence would justify replacing trusted allowlisted coordinator finalization with a challenge/proof/user-submitted receipt path?
 4. What reconciliation guarantees are required for production if offchain coordinator state is non-authoritative?
 
 ### 18.5 Implementation path and generated stack
@@ -1722,16 +2188,17 @@ This draft intentionally leaves several choices unresolved. The body of the spec
 
 ### Phase 0: Research and compatibility
 
-- Test FOC contract-wallet/payment compatibility.
-- Document current Synapse SDK assumptions.
-- Identify required SDK changes.
+- Complete the Phase 0 Compatibility Report Template in section 13.1.
+- Prove the platform EOA/KMS payer plus session-key coordinator path on Calibration.
+- Collect transaction hashes and logs for contract-wallet, treasury, smart-account, browser-direct, expiry, and reconciliation gates.
+- Document current Synapse SDK assumptions and identify required SDK changes.
 
 ### Phase 1: Onchain registry prototype
 
-- Generate or hand-write simple platform registry.
-- Add upload request/finalize flow.
-- Build trusted coordinator with Synapse SDK.
-- Store object and usage state onchain.
+- Implement the v1 contract/API surface in section 6.7.
+- Add upload request, start, finalize, fail, cancel, and expire flows.
+- Build the allowlisted hosted coordinator with Synapse SDK and FOC session keys.
+- Store object, receipt, copy, dataset, and usage state onchain.
 
 ### Phase 2: Token Host Builder integration
 
@@ -1771,4 +2238,3 @@ The buildout is successful when:
 6. The stack supports at least one working managed-wallet mode on Calibration.
 7. The design remains extensible to smart-account or contract-treasury modes.
 8. Token Host Builder can generate or scaffold a meaningful portion of the platform app.
-
