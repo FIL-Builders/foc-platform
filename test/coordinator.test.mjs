@@ -556,6 +556,69 @@ test("local hosted coordinator validates request content hash when algorithm is 
   assert.equal(uploadCalls[0].request.contentHashAlgorithm, "keccak256");
 });
 
+test("local hosted coordinator rejects upload-level content hash overrides", async () => {
+  const registry = createRegistry();
+  const bytes = new Uint8Array([1, 2, 3, 4]);
+  const uploadCalls = [];
+  const request = requestFixture({
+    size: 4n,
+    contentHash: keccak256(bytes),
+    contentHashAlgorithm: "keccak256",
+  });
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request,
+        bytes,
+        contentHash: "",
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "content_hash_conflict");
+      return true;
+    },
+  );
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request,
+        bytes,
+        contentHash: CONTENT_HASH,
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "content_hash_conflict");
+      return true;
+    },
+  );
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request,
+        bytes,
+        contentHashAlgorithm: "identity-bytes32",
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "content_hash_algorithm_conflict");
+      return true;
+    },
+  );
+
+  assert.equal(registry.startCalls.length, 0);
+  assert.equal(registry.finalizeCalls.length, 0);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 0);
+});
+
 test("local hosted coordinator treats stored content hash as opaque without algorithm", async () => {
   const registry = createRegistry();
   const uploadCalls = [];

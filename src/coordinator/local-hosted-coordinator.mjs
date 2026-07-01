@@ -108,17 +108,12 @@ export function createLocalHostedCoordinator({
 function prepareInput(input = {}, config, sessionKey, clock) {
   const objectId = required(input.objectId, "objectId");
   const request = required(input.request, "request");
-  const contentHashAlgorithm = input.contentHashAlgorithm ?? request.contentHashAlgorithm;
+  const contentCommitment = resolveContentCommitment(input, request);
   const bytes = validateUploadBytes({
     bytes: input.bytes,
     declaredSize: request.size,
-    contentHash:
-      input.contentHash !== undefined
-        ? input.contentHash
-        : contentHashAlgorithm
-          ? request.contentHash
-          : undefined,
-    contentHashAlgorithm,
+    contentHash: contentCommitment.contentHash,
+    contentHashAlgorithm: contentCommitment.contentHashAlgorithm,
   });
 
   if (config.maxBytes !== undefined && BigInt(bytes.byteLength) > config.maxBytes) {
@@ -142,6 +137,59 @@ function prepareInput(input = {}, config, sessionKey, clock) {
     account: input.account,
     metadata: input.metadata ?? {},
   };
+}
+
+function resolveContentCommitment(input, request) {
+  const requestAlgorithm = request.contentHashAlgorithm;
+  const requestHash = request.contentHash;
+  if (requestAlgorithm) {
+    if (
+      input.contentHashAlgorithm !== undefined &&
+      input.contentHashAlgorithm !== requestAlgorithm
+    ) {
+      throw new HostedCoordinatorError(
+        "content_hash_algorithm_conflict",
+        "upload content hash algorithm cannot override request commitment",
+        {
+          requestContentHashAlgorithm: requestAlgorithm,
+          inputContentHashAlgorithm: input.contentHashAlgorithm,
+        },
+      );
+    }
+    if (hasContentHash(requestHash)) {
+      if (
+        input.contentHash !== undefined &&
+        (!hasContentHash(input.contentHash) || !sameContentHash(input.contentHash, requestHash))
+      ) {
+        throw new HostedCoordinatorError(
+          "content_hash_conflict",
+          "upload content hash cannot override request commitment",
+          {
+            requestContentHash: requestHash,
+            inputContentHash: input.contentHash,
+          },
+        );
+      }
+      return { contentHash: requestHash, contentHashAlgorithm: requestAlgorithm };
+    }
+    return {
+      contentHash: input.contentHash,
+      contentHashAlgorithm: requestAlgorithm,
+    };
+  }
+
+  return {
+    contentHash: input.contentHash,
+    contentHashAlgorithm: input.contentHashAlgorithm,
+  };
+}
+
+function hasContentHash(value) {
+  return value !== undefined && value !== null && value !== "";
+}
+
+function sameContentHash(actual, expected) {
+  return String(actual).toLowerCase() === String(expected).toLowerCase();
 }
 
 function preflightIdempotencyOperation(input = {}) {
