@@ -37,7 +37,7 @@ workspace.
 
 See [`spec.md`](./spec.md).
 
-The design is not production-ready, but it now selects a v1 implementation path to validate: platform EOA/KMS payer, FOC session-key coordinator, hosted coordination, onchain request/object/usage/receipt state, and a Token Host Builder-first scaffold for the generated app, admin/read surfaces, upload adapters, manifests, and sponsored transaction wiring. The workspace includes a local registry artifact/read model, a dev-only upload spine test that exercises request, start, deterministic mocked receipt finalization, object reads, usage reads, and log projection, plus read-only admin/reconciliation projections for object, usage, dataset, provider, coordinator, and mismatch views. These tests do not claim real FOC or Calibration execution. Future payment and coordinator modes remain compatibility-gated by Phase 0 evidence.
+The design is not production-ready, but it now selects a v1 implementation path to validate: platform EOA/KMS payer, FOC session-key coordinator, hosted coordination, onchain request/object/usage/receipt state, and a Token Host Builder-first scaffold for the generated app, admin/read surfaces, upload adapters, manifests, and sponsored transaction wiring. The workspace includes a local registry artifact/read model, a dev-only upload spine test that exercises request, start, deterministic mocked receipt finalization, object reads, usage reads, and log projection, plus read-only admin/reconciliation projections for object, usage, dataset, provider, coordinator, and mismatch views. A partial Phase 0 Calibration run has deployed and verified the registry bytecode on chain `314159`; see [`docs/phase0-calibration-report.md`](./docs/phase0-calibration-report.md). The full FOC/Synapse/session-key compatibility matrix remains open, so future payment and coordinator modes remain compatibility-gated by Phase 0 evidence.
 
 ## Related projects
 
@@ -61,7 +61,7 @@ The current v1 direction is:
 
 Smart-account payers, contract treasury payment, direct browser-to-FOC upload, BYO coordinators, and stronger proof models remain compatibility-gated future paths. Token Host Builder is the preferred v1 scaffolding path, but the production contract/API semantics in `spec.md` remain authoritative until a generated custom module proves compatibility with the upload lifecycle, coordinator controls, receipts, and usage accounting model.
 
-The next recommended step is to complete the Phase 0 Filecoin Calibration compatibility report and Token Host Builder compatibility matrix in `spec.md`, including required transaction hashes, pass/fail answers, SDK gaps, builder gaps, and the final recommended v1 implementation mode.
+The next recommended step is to complete the remaining Phase 0 Filecoin Calibration tests from `spec.md`, especially FOC funding/approval, session-key authorization, Synapse upload/commit, receipt finalization, reconciliation, and expiry/revocation, then finish the Token Host Builder compatibility matrix with required transaction hashes, pass/fail answers, SDK gaps, builder gaps, and the final recommended v1 implementation mode.
 
 For local development, `pnpm test:spine` runs the mocked vertical upload spine,
 `pnpm test:api` validates the route-equivalent platform API surface, and
