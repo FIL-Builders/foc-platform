@@ -993,6 +993,96 @@ test("local hosted coordinator rejects expired Uploading requests before FOC upl
   assert.equal(uploadCalls.length, 0);
 });
 
+test("local hosted coordinator rejects successful FOC uploads that expire before finalize", async () => {
+  const registry = createRegistry();
+  const uploadCalls = [];
+  let now = 100n;
+  const coordinator = createCoordinator({
+    registry,
+    focClient: {
+      async upload(input) {
+        uploadCalls.push(input);
+        now = 101n;
+        return {
+          payer: PAYER,
+          actualCost: 7n,
+          pieceCid: "baga6ea4seaqtest",
+          copies: [
+            copyFixture({ providerId: 111n, datasetId: 222n, pieceId: 333n }),
+            copyFixture({ providerId: 112n, datasetId: 223n, pieceId: 334n }),
+          ],
+        };
+      },
+    },
+    clock: () => now,
+  });
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request: requestFixture({ size: 4n, requestExpiresAt: 100n }),
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "request_expired");
+      assert.deepEqual(error.details, {
+        objectId: "1",
+        requestExpiresAt: "100",
+        now: "101",
+      });
+      return true;
+    },
+  );
+
+  assert.equal(registry.finalizeCalls.length, 0);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 1);
+});
+
+test("local hosted coordinator skips failUpload when FOC errors after expiry", async () => {
+  const registry = createRegistry();
+  const uploadCalls = [];
+  const uploadError = new Error("provider timed out");
+  uploadError.code = "provider_timeout";
+  let now = 100n;
+  const coordinator = createCoordinator({
+    registry,
+    focClient: {
+      async upload(input) {
+        uploadCalls.push(input);
+        now = 101n;
+        throw uploadError;
+      },
+    },
+    clock: () => now,
+  });
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request: requestFixture({ size: 4n, requestExpiresAt: 100n }),
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "request_expired");
+      assert.deepEqual(error.details, {
+        objectId: "1",
+        requestExpiresAt: "100",
+        now: "101",
+      });
+      return true;
+    },
+  );
+
+  assert.equal(registry.finalizeCalls.length, 0);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 1);
+});
+
 test("local hosted coordinator resumes raw numeric Uploading status without replaying startUpload", async () => {
   const registry = createRegistry();
   registry.status = 2;

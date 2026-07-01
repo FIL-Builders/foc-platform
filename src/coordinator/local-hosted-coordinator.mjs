@@ -260,13 +260,20 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
   }
 
   assertUploadRequestNotExpired({ prepared, object: currentObject, now: clock() });
-  const synapseResult = await focClient.upload({
-    objectId: prepared.objectId,
-    request: prepared.request,
-    bytes: prepared.bytes,
-    sessionKey: publicSessionKey(sessionKey),
-    metadata: prepared.metadata,
-  });
+  let synapseResult;
+  try {
+    synapseResult = await focClient.upload({
+      objectId: prepared.objectId,
+      request: prepared.request,
+      bytes: prepared.bytes,
+      sessionKey: publicSessionKey(sessionKey),
+      metadata: prepared.metadata,
+    });
+  } catch (error) {
+    assertUploadRequestNotExpired({ prepared, object: currentObject, now: clock() });
+    throw error;
+  }
+  assertUploadRequestNotExpired({ prepared, object: currentObject, now: clock() });
   const receipt = mapSynapseResultToUploadReceipt({
     result: synapseResult,
     request: prepared.request,
