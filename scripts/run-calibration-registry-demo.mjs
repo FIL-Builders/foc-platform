@@ -124,26 +124,46 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
   const txHashes = {};
 
   await assertOwner({ publicClient, config });
-  const coordinatorPolicy = await readCoordinatorPolicy({ publicClient, config });
-  if (shouldRefreshDemoCoordinatorPolicy(coordinatorPolicy)) {
-    txHashes.setCoordinator = await sendAndWait({
-      publicClient,
-      walletClient,
-      config,
-      functionName: "setCoordinator",
-      args: [
-        config.account.address,
-        {
-          allowed: true,
-          maxFinalizeDelay: DEMO_COORDINATOR_MAX_FINALIZE_DELAY,
-          sessionKeyExpiresAt: 0n,
-          permissionsHash: ZERO_BYTES32,
-        },
-      ],
-    });
-  }
 
   let objectId = await readObjectByIdempotencyKey({ publicClient, config });
+  let object = null;
+  let committedEvidenceValidated = false;
+  if (objectId !== 0n) {
+    object = await readStorageObject({ publicClient, config, objectId });
+    validateStorageObjectRequestInputs({ config, objectId, object });
+    if (isCommittedStorageObject(object)) {
+      await validateCommittedObjectBeforeRegistryMutation({
+        publicClient,
+        config,
+        objectId,
+        object,
+      });
+      committedEvidenceValidated = true;
+    }
+  }
+
+  const shouldMutateRegistry = objectId === 0n || !isCommittedStorageObject(object);
+  if (shouldMutateRegistry) {
+    const coordinatorPolicy = await readCoordinatorPolicy({ publicClient, config });
+    if (shouldRefreshDemoCoordinatorPolicy(coordinatorPolicy)) {
+      txHashes.setCoordinator = await sendAndWait({
+        publicClient,
+        walletClient,
+        config,
+        functionName: "setCoordinator",
+        args: [
+          config.account.address,
+          {
+            allowed: true,
+            maxFinalizeDelay: DEMO_COORDINATOR_MAX_FINALIZE_DELAY,
+            sessionKeyExpiresAt: 0n,
+            permissionsHash: ZERO_BYTES32,
+          },
+        ],
+      });
+    }
+  }
+
   if (objectId === 0n) {
     txHashes.requestUpload = await sendAndWait({
       publicClient,
@@ -153,10 +173,13 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
       args: [config.requestParams, "0x"],
     });
     objectId = await readObjectByIdempotencyKey({ publicClient, config });
+    object = null;
   }
 
-  let object = await readStorageObject({ publicClient, config, objectId });
-  validateStorageObjectRequestInputs({ config, objectId, object });
+  if (!object) {
+    object = await readStorageObject({ publicClient, config, objectId });
+    validateStorageObjectRequestInputs({ config, objectId, object });
+  }
   if (Number(object.status) === 1) {
     txHashes.startUpload = await sendAndWait({
       publicClient,
@@ -170,34 +193,14 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
   }
 
   if (isCommittedStorageObject(object)) {
-    const [copyReceipts, receiptPayer, dataset] = await Promise.all([
-      publicClient.readContract({
-        address: config.registryAddress,
-        abi: registryAbi,
-        functionName: "getCopyReceipts",
-        args: [objectId],
-      }),
-      publicClient.readContract({
-        address: config.registryAddress,
-        abi: registryAbi,
-        functionName: "receiptPayer",
-        args: [objectId],
-      }),
-      publicClient.readContract({
-        address: config.registryAddress,
-        abi: registryAbi,
-        functionName: "getDatasetRecord",
-        args: [config.accountId, BigInt(config.providerId), BigInt(config.datasetId)],
-      }),
-    ]);
-    validateCalibrationEvidenceBeforeMutation({
-      config,
-      objectId,
-      finalObject: object,
-      copyReceipts,
-      receiptPayer,
-      dataset,
-    });
+    if (!committedEvidenceValidated) {
+      await validateCommittedObjectBeforeRegistryMutation({
+        publicClient,
+        config,
+        objectId,
+        object,
+      });
+    }
   } else {
     txHashes.recordDataset = await sendAndWait({
       publicClient,
@@ -746,6 +749,42 @@ async function readStorageObject({ publicClient, config, objectId }) {
     abi: registryAbi,
     functionName: "getStorageObject",
     args: [objectId],
+  });
+}
+
+async function validateCommittedObjectBeforeRegistryMutation({
+  publicClient,
+  config,
+  objectId,
+  object,
+}) {
+  const [copyReceipts, receiptPayer, dataset] = await Promise.all([
+    publicClient.readContract({
+      address: config.registryAddress,
+      abi: registryAbi,
+      functionName: "getCopyReceipts",
+      args: [objectId],
+    }),
+    publicClient.readContract({
+      address: config.registryAddress,
+      abi: registryAbi,
+      functionName: "receiptPayer",
+      args: [objectId],
+    }),
+    publicClient.readContract({
+      address: config.registryAddress,
+      abi: registryAbi,
+      functionName: "getDatasetRecord",
+      args: [config.accountId, BigInt(config.providerId), BigInt(config.datasetId)],
+    }),
+  ]);
+  validateCalibrationEvidenceBeforeMutation({
+    config,
+    objectId,
+    finalObject: object,
+    copyReceipts,
+    receiptPayer,
+    dataset,
   });
 }
 
