@@ -1,0 +1,203 @@
+{
+  "thsVersion": "2025-12",
+  "schemaVersion": "0.1.0",
+  "app": {
+    "name": "FOC Platform Demo",
+    "slug": "foc-platform-demo",
+    "description": "Token Host wrapper-mode scaffold for the Filecoin Onchain Cloud platform upload lifecycle.",
+    "brand": {
+      "primaryText": "FOC",
+      "accentText": "Platform"
+    },
+    "primaryCollection": "UploadRequest",
+    "deploy": {
+      "netlify": {
+        "uploads": {
+          "provider": "filecoin_onchain_cloud",
+          "runner": "background-function"
+        }
+      }
+    },
+    "theme": {
+      "preset": "cyber-grid"
+    },
+    "features": {
+      "uploads": true,
+      "onChainIndexing": true
+    },
+    "ui": {
+      "homePage": {
+        "mode": "custom"
+      },
+      "extensions": {
+        "directory": "ui-overrides"
+      },
+      "generated": {
+        "feeds": [
+          {
+            "id": "uploadRequests",
+            "collection": "UploadRequest",
+            "limit": 25,
+            "card": {
+              "textField": "label",
+              "mediaField": "payload"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "collections": [
+    {
+      "name": "UploadRequest",
+      "fields": [
+        {
+          "name": "label",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "payload",
+          "type": "image"
+        },
+        {
+          "name": "accountId",
+          "type": "bytes32"
+        },
+        {
+          "name": "objectId",
+          "type": "uint256"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "requestedCopies",
+          "type": "uint256"
+        },
+        {
+          "name": "withCDN",
+          "type": "bool"
+        }
+      ],
+      "createRules": {
+        "required": ["label"],
+        "access": "public"
+      },
+      "visibilityRules": {
+        "gets": ["label", "payload", "accountId", "objectId", "status", "requestedCopies", "withCDN"],
+        "access": "public"
+      },
+      "updateRules": {
+        "mutable": ["label", "payload"],
+        "access": "owner"
+      },
+      "deleteRules": {
+        "softDelete": true,
+        "access": "owner"
+      },
+      "transferRules": {
+        "access": "owner"
+      },
+      "indexes": {
+        "unique": [],
+        "index": [
+          {
+            "field": "accountId"
+          },
+          {
+            "field": "status"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StorageObject",
+      "fields": [
+        {
+          "name": "objectId",
+          "type": "uint256",
+          "required": true
+        },
+        {
+          "name": "accountId",
+          "type": "bytes32"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "size",
+          "type": "uint256"
+        },
+        {
+          "name": "receiptHash",
+          "type": "bytes32"
+        },
+        {
+          "name": "providerSummary",
+          "type": "string"
+        }
+      ],
+      "createRules": {
+        "required": ["objectId"],
+        "access": "public"
+      },
+      "visibilityRules": {
+        "gets": ["objectId", "accountId", "status", "size", "receiptHash", "providerSummary"],
+        "access": "public"
+      },
+      "updateRules": {
+        "mutable": ["status", "receiptHash", "providerSummary"],
+        "access": "owner"
+      },
+      "deleteRules": {
+        "softDelete": true,
+        "access": "owner"
+      },
+      "transferRules": {
+        "access": "owner"
+      },
+      "indexes": {
+        "unique": [
+          {
+            "field": "objectId",
+            "scope": "allTime"
+          }
+        ],
+        "index": [
+          {
+            "field": "accountId"
+          },
+          {
+            "field": "status"
+          }
+        ]
+      }
+    }
+  ],
+  "metadata": {
+    "focPlatform": {
+      "mode": "wrapper",
+      "contractMode": "handWrittenRegistry",
+      "registryArtifact": "artifacts/contracts/FocPlatformRegistry.json",
+      "registryContract": "contracts/FocPlatformRegistry.sol",
+      "apiModule": "src/api/platform-api.mjs",
+      "readModel": "src/registry/read-model.mjs",
+      "chainTarget": "filecoin_calibration",
+      "paymentMode": "platformWallet",
+      "billingMode": "quotaOnly",
+      "coordinatorMode": "hosted",
+      "accountIdSource": "platformUserHash",
+      "idempotency": "requiredPerAccount",
+      "receiptMode": "compact",
+      "defaultCopies": 2,
+      "withCDN": true,
+      "mockedBoundary": "dev-spine-only",
+      "authoritativeProtocol": "FocPlatformRegistry section 6.7",
+      "notes": "Current Token Host Builder output is a generated UI/upload scaffold. FOC lifecycle and accounting semantics remain in the hand-written registry/API wrapper until tokenhost-builder issues 79, 80, and 82 land."
+    }
+  }
+}

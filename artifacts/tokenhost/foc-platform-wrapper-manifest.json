@@ -1,0 +1,174 @@
+{
+  "manifestVersion": "0.1.0",
+  "kind": "foc-platform-tokenhost-wrapper",
+  "mode": "handWrittenRegistryWrapper",
+  "schema": {
+    "path": "apps/tokenhost-foc-platform/schema.json",
+    "thsVersion": "2025-12",
+    "schemaVersion": "0.1.0",
+    "appName": "FOC Platform Demo",
+    "appSlug": "foc-platform-demo",
+    "primaryCollection": "UploadRequest",
+    "sha256": "0xc154006dba33464e815268cda1c896cb302b45ca24b7085ece8c73124f9918ed"
+  },
+  "builder": {
+    "repoPath": "$TOKENHOST_BUILDER_DIR",
+    "buildCommand": "TH_UPLOAD_RUNNER=remote TH_UPLOAD_PROVIDER=filecoin_onchain_cloud TH_UPLOAD_REMOTE_ENDPOINT_URL=/storage/tokenhost/upload TH_UPLOAD_REMOTE_STATUS_URL=/storage/tokenhost/upload/status pnpm --dir \"$TOKENHOST_BUILDER_DIR\" th build \"$FOC_PLATFORM_DIR/apps/tokenhost-foc-platform/schema.json\" --chain filecoin_calibration --tx-mode sponsored --relay-base-url /__tokenhost/relay --out /tmp/foc-platform-tokenhost-demo",
+    "chain": "filecoin_calibration",
+    "txMode": "sponsored",
+    "expectedArtifacts": [
+      "manifest.json",
+      "schema.json",
+      "compiled/App.json",
+      "contracts/App.sol",
+      "ui-site/",
+      "netlify.toml",
+      "netlify/functions/tokenhost-upload-start.mjs",
+      "netlify/functions/tokenhost-upload-status.mjs",
+      "netlify/functions/tokenhost-upload-worker-background.mjs",
+      "NETLIFY-UPLOADS.md"
+    ],
+    "externalIssues": [
+      {
+        "issue": "tokenhost/tokenhost-builder#79",
+        "title": "Add app.focPlatform schema and manifest extension",
+        "status": "open",
+        "impact": "FOC metadata lives in this wrapper config until the builder emits app.focPlatform manifest extensions."
+      },
+      {
+        "issue": "tokenhost/tokenhost-builder#80",
+        "title": "Support FOC Platform registry lifecycle generation or wrapper mode",
+        "status": "open",
+        "impact": "Generated CRUD must wrap the hand-written registry; it is not production-equivalent to section 6.7."
+      },
+      {
+        "issue": "tokenhost/tokenhost-builder#82",
+        "title": "Add FOC Platform receipt-aware upload runner path",
+        "status": "open",
+        "impact": "Upload runner output remains prototype/wrapper metadata until it can produce section 6.7-compatible receipts."
+      }
+    ]
+  },
+  "extensions": {
+    "focPlatform": {
+      "paymentMode": "platformWallet",
+      "billingMode": "quotaOnly",
+      "coordinatorMode": "hosted",
+      "defaultCopies": 2,
+      "allowCDN": true,
+      "accountIdSource": "platformUserHash",
+      "idempotency": "requiredPerAccount",
+      "receiptMode": "compact",
+      "datasetStrategy": "perAccountProviderClass",
+      "contractMode": "handWrittenRegistry"
+    }
+  },
+  "focPlatform": {
+    "paymentMode": "platformWallet",
+    "billingMode": "quotaOnly",
+    "coordinatorMode": "hosted",
+    "defaultCopies": 2,
+    "allowCDN": true,
+    "accountIdSource": "platformUserHash",
+    "idempotency": "requiredPerAccount",
+    "receiptMode": "compact",
+    "datasetStrategy": "perAccountProviderClass",
+    "contractMode": "handWrittenRegistry"
+  },
+  "registry": {
+    "name": "FocPlatformRegistry",
+    "artifactPath": "artifacts/contracts/FocPlatformRegistry.json",
+    "sourceName": "contracts/FocPlatformRegistry.sol",
+    "bytecodeSha256": "0x8d2675565ea81cc44f115ede1aaf91cac3b6376d471334740ba2003e055e1d41",
+    "deployedBytecodeSha256": "0x11e555f462e7774800298a5387f3fcbb866da9604927a8df4f77d6e1166cc14b",
+    "requiredFunctions": [
+      "requestUpload",
+      "startUpload",
+      "finalizeUpload",
+      "failUpload",
+      "cancelUpload",
+      "expireUpload",
+      "getStorageObject",
+      "getAccountUsage",
+      "getCopyReceipts",
+      "receiptPayer"
+    ]
+  },
+  "platformApi": {
+    "sourcePath": "src/api/platform-api.mjs",
+    "routes": {
+      "createUpload": [
+        "POST /storage/upload-requests",
+        "POST /storage/upload"
+      ],
+      "tokenHostUpload": "POST /storage/tokenhost/upload",
+      "tokenHostUploadStatus": "GET /storage/tokenhost/upload/status",
+      "uploadBytes": "POST /storage/uploads/:objectId/bytes",
+      "uploadStatus": [
+        "GET /storage/uploads/:objectId/status",
+        "GET /storage/uploads/:objectId",
+        "GET /storage/uploads/status?objectId=:objectId"
+      ],
+      "object": "GET /storage/objects/:objectId",
+      "usage": [
+        "GET /storage/usage/:accountId",
+        "GET /usage"
+      ]
+    },
+    "auth": {
+      "subjectHeader": "x-platform-user-id",
+      "walletHeader": "x-platform-wallet-address",
+      "accountId": "derivedServerSideBytes32"
+    }
+  },
+  "tokenHostRuntime": {
+    "uploadProvider": "filecoin_onchain_cloud",
+    "uploadRunnerMode": "remote",
+    "transactionMode": "sponsored",
+    "generatedUploadEndpoint": "/storage/tokenhost/upload",
+    "generatedUploadStatusEndpoint": "/storage/tokenhost/upload/status",
+    "platformCreateUploadEndpoint": "/storage/upload-requests",
+    "platformUploadEndpoint": "/storage/uploads/:objectId/bytes",
+    "platformStatusEndpoint": "/storage/uploads/:objectId/status"
+  },
+  "screens": [
+    {
+      "id": "request",
+      "label": "Upload request",
+      "uses": [
+        "POST /storage/upload-requests",
+        "POST /storage/upload"
+      ]
+    },
+    {
+      "id": "status",
+      "label": "Upload status",
+      "uses": [
+        "GET /storage/uploads/:objectId/status",
+        "GET /storage/uploads/:objectId"
+      ]
+    },
+    {
+      "id": "object",
+      "label": "Object receipt",
+      "uses": [
+        "GET /storage/objects/:objectId"
+      ]
+    },
+    {
+      "id": "usage",
+      "label": "Account usage",
+      "uses": [
+        "GET /storage/usage/:accountId",
+        "GET /usage"
+      ]
+    }
+  ],
+  "boundaries": [
+    "Token Host generated CRUD is a UI/upload scaffold only.",
+    "FocPlatformRegistry remains authoritative for lifecycle, receipts, usage, relayer accountability, and coordinator controls.",
+    "No generated artifact may include coordinator private keys or platform root secrets.",
+    "Real Filecoin Calibration and Synapse execution remain gated by Phase 0 credentials/evidence."
+  ],
+  "configSha256": "0x14791d934f58ea27a081db1dc35984b2a0b84725e87fde8abba5e1d44b995e99"
+}

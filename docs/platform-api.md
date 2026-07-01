@@ -13,6 +13,7 @@ Canonical routes follow `spec.md` section 6.7.10:
 POST /storage/upload-requests
 POST /storage/uploads/:objectId/bytes
 GET  /storage/uploads/:objectId/status
+GET  /storage/uploads/status?objectId=:objectId
 GET  /storage/objects/:objectId
 GET  /storage/usage/:accountId
 ```
@@ -21,9 +22,19 @@ The implementation also accepts issue/UI aliases:
 
 ```http
 POST /storage/upload
+POST /storage/tokenhost/upload
+GET  /storage/tokenhost/upload/status
 GET  /storage/uploads/:objectId
 GET  /usage
 ```
+
+`POST /storage/tokenhost/upload` and
+`GET /storage/tokenhost/upload/status` are the generated Token Host upload
+adapter endpoints. They speak Token Host Builder's byte-upload contract and
+then bridge into the section 6.7 create/submit/read model. The canonical object
+status route remains `GET /storage/uploads/:objectId/status`; the
+`GET /storage/uploads/status?objectId=:objectId` alias is only an object-status
+read alias.
 
 Requests use normal platform authentication outside this repo. The current
 handler requires `x-platform-user-id` as the authenticated platform subject and
@@ -61,6 +72,10 @@ upload request with a new idempotency key when they need a fresh attempt.
 
 Generated UI/client code should bind to:
 
+- `POST /storage/tokenhost/upload` for direct file-byte uploads from generated
+  Token Host upload UI. Successful responses include
+  `{ ok: true, upload: { url, size, provider, runnerMode, metadata } }`;
+- `GET /storage/tokenhost/upload/status` for upload adapter metadata;
 - `request.objectId`, `request.accountId`, `request.status`, and
   `request.requestExpiresAt` from create responses;
 - `links.uploadBytes`, `links.status`, `links.object`, and `links.usage` for

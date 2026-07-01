@@ -6,16 +6,22 @@ const requiredFiles = [
   "foundry.toml",
   "package.json",
   ".env.example",
+  "apps/tokenhost-foc-platform/schema.json",
+  "apps/tokenhost-foc-platform/ui-overrides/app/page.tsx",
   "artifacts/contracts/FocPlatformRegistry.json",
+  "artifacts/tokenhost/foc-platform-wrapper-manifest.json",
   "docs/deployment.md",
   "docs/platform-api.md",
   "docs/registry.md",
+  "docs/tokenhost-demo.md",
   "docs/upload-spine.md",
   "contracts/FocPlatformRegistry.sol",
   "contracts/WorkspaceSentinel.sol",
   "script/DeployFocPlatformRegistry.s.sol",
   "scripts/generate-registry-artifacts.mjs",
+  "scripts/generate-tokenhost-wrapper-artifacts.mjs",
   "src/api/platform-api.mjs",
+  "src/demo/tokenhost-wrapper.mjs",
   "src/dev/upload-spine.mjs",
   "src/registry/read-model.mjs",
   "test/contracts/FocPlatformRegistry.t.sol",
@@ -23,7 +29,9 @@ const requiredFiles = [
   "test/dev-upload-spine.test.mjs",
   "test/platform-api.test.mjs",
   "test/registry-read-model.test.mjs",
+  "test/tokenhost-demo.test.mjs",
   "test/workspace.test.mjs",
+  "tokenhost/foc-platform-wrapper.config.json",
 ];
 
 for (const filePath of requiredFiles) {
@@ -49,8 +57,10 @@ for (const script of [
   "test:node",
   "test:contracts",
   "test:spine",
+  "test:tokenhost",
   "build:contracts",
   "build:artifacts",
+  "build:tokenhost",
 ]) {
   if (!pkg.scripts?.[script]) {
     throw new Error(`package.json is missing script: ${script}`);
