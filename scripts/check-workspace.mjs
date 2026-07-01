@@ -11,15 +11,14 @@ const requiredFiles = [
   "test/workspace.test.mjs",
 ];
 
-for (const path of requiredFiles) {
-  await access(path);
+for (const filePath of requiredFiles) {
+  await access(filePath);
 }
 
 const envExample = await readFile(".env.example", "utf8");
-for (const forbidden of ["0x0000000000000000000000000000000000000000000000000000000000000000"]) {
-  if (envExample.includes(forbidden)) {
-    throw new Error(`.env.example must not contain placeholder private key ${forbidden}`);
-  }
+const privateKeyPattern = /PRIVATE_KEY=0x[0-9a-fA-F]{64}/;
+if (privateKeyPattern.test(envExample)) {
+  throw new Error(".env.example must not contain concrete private key values");
 }
 
 const pkg = JSON.parse(await readFile("package.json", "utf8"));
