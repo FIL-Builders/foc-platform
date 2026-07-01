@@ -9,7 +9,9 @@ const requiredFiles = [
   "apps/tokenhost-foc-platform/schema.json",
   "apps/tokenhost-foc-platform/ui-overrides/app/page.tsx",
   "artifacts/contracts/FocPlatformRegistry.json",
+  "artifacts/calibration/demo-evidence.json",
   "artifacts/tokenhost/foc-platform-wrapper-manifest.json",
+  "docs/calibration-worker-demo.md",
   "docs/deployment.md",
   "docs/admin-reconciliation.md",
   "docs/platform-api.md",
@@ -27,6 +29,9 @@ const requiredFiles = [
   "src/demo/tokenhost-wrapper.mjs",
   "src/dev/upload-spine.mjs",
   "src/registry/read-model.mjs",
+  "src/worker/calibration-demo.mjs",
+  "src/worker/worker-configuration.d.ts",
+  "test/calibration-worker.test.mjs",
   "test/contracts/FocPlatformRegistry.t.sol",
   "test/contracts/WorkspaceSentinel.t.sol",
   "test/admin-reconciliation.test.mjs",
@@ -37,6 +42,7 @@ const requiredFiles = [
   "test/tokenhost-demo.test.mjs",
   "test/workspace.test.mjs",
   "tokenhost/foc-platform-wrapper.config.json",
+  "wrangler.jsonc",
 ];
 
 for (const filePath of requiredFiles) {
@@ -47,6 +53,15 @@ const envExample = await readFile(".env.example", "utf8");
 const privateKeyPattern = /PRIVATE_KEY=0x[0-9a-fA-F]{64}/;
 if (privateKeyPattern.test(envExample)) {
   throw new Error(".env.example must not contain concrete private key values");
+}
+
+const wrangler = await readFile("wrangler.jsonc", "utf8");
+if (/PRIVATE_KEY|SECRET|WALLET_SEED/.test(wrangler)) {
+  throw new Error("wrangler.jsonc must not contain secret bindings or key placeholders");
+}
+const workerSource = await readFile("src/worker/calibration-demo.mjs", "utf8");
+if (/process\.env|PRIVATE_KEY|WALLET_SEED|wrangler secret put/.test(workerSource)) {
+  throw new Error("Worker source must stay read-only and secret-free");
 }
 
 const gitignore = await readFile(".gitignore", "utf8");
@@ -67,6 +82,9 @@ for (const script of [
   "build:contracts",
   "build:artifacts",
   "build:tokenhost",
+  "worker:dev",
+  "worker:dry-run",
+  "worker:types",
 ]) {
   if (!pkg.scripts?.[script]) {
     throw new Error(`package.json is missing script: ${script}`);
@@ -76,6 +94,16 @@ for (const script of [
 const artifact = JSON.parse(await readFile("artifacts/contracts/FocPlatformRegistry.json", "utf8"));
 if (artifact.contractName !== "FocPlatformRegistry" || !Array.isArray(artifact.abi)) {
   throw new Error("registry artifact must expose FocPlatformRegistry ABI");
+}
+
+const calibrationEvidence = JSON.parse(
+  await readFile("artifacts/calibration/demo-evidence.json", "utf8"),
+);
+if (
+  calibrationEvidence.worker?.privilegedActions !== false ||
+  calibrationEvidence.worker?.servesPrivateKeys !== false
+) {
+  throw new Error("Calibration evidence must record the Worker as read-only and secret-free");
 }
 
 const ci = await readFile(".github/workflows/ci.yml", "utf8");

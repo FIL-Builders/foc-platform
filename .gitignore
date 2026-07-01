@@ -4,6 +4,7 @@ out/
 broadcast/
 coverage/
 dist/
+worker-startup.cpuprofile
 .env
 .env.*
 !.env.example

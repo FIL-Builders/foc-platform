@@ -15,7 +15,10 @@
     "test:contracts": "forge test",
     "test:node": "node --test",
     "test:spine": "node --test test/dev-upload-spine.test.mjs",
-    "test:tokenhost": "node --test test/tokenhost-demo.test.mjs"
+    "test:tokenhost": "node --test test/tokenhost-demo.test.mjs",
+    "worker:dev": "npx wrangler dev --local",
+    "worker:dry-run": "npx wrangler deploy --dry-run --outdir /tmp/foc-platform-worker-dry-run",
+    "worker:types": "npx wrangler types src/worker/worker-configuration.d.ts && perl -0pi -e 's/[ \\\\t]+$//mg' src/worker/worker-configuration.d.ts"
   },
   "dependencies": {
     "viem": "^2.54.1"
