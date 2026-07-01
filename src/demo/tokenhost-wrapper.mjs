@@ -623,9 +623,8 @@ function registrySurfacesForRoute(route) {
     case "object":
       return { objectId: route.params?.objectId, datasets: true, coordinators: true };
     case "objects":
-      return { objects: true, datasets: true, coordinators: true };
     case "usage":
-      return { objects: true, accounts: true };
+      return fullRegistrySurfaces();
     case "datasets":
       return { objects: true, datasets: true };
     case "coordinators":
@@ -633,14 +632,18 @@ function registrySurfacesForRoute(route) {
     case "dashboard":
     case "reconciliation":
     default:
-      return {
-        objects: true,
-        accounts: true,
-        datasets: true,
-        coordinators: true,
-        relayers: true,
-      };
+      return fullRegistrySurfaces();
   }
+}
+
+function fullRegistrySurfaces() {
+  return {
+    objects: true,
+    accounts: true,
+    datasets: true,
+    coordinators: true,
+    relayers: true,
+  };
 }
 
 async function readCursorIdsPage({ cursorIdExclusive, includeTerminal, readPage }) {

@@ -166,6 +166,13 @@ test("Token Host direct read adapter honors admin route hints", async () => {
   assert.equal(usage.status, 200);
   const accountBUsage = usage.body.usage.find((row) => row.accountId === ACCOUNT_B);
   assert.equal(accountBUsage.projectedPendingBytes, "1024");
+  assert.equal(usage.body.summary.accountCount, 2);
+  assert.equal(usage.body.summary.datasetCount, 1);
+  assert.equal(usage.body.summary.coordinatorCount, 1);
+  assert.equal(usage.body.summary.relayerCount, 1);
+  assert.equal(usage.body.summary.mismatchCount, 0);
+  assert.equal(usage.body.summary.warningCount, 0);
+  assert.equal(usage.body.summary.pendingEvidenceCount, 1);
   assert.deepEqual(calls.map((call) => call.functionName), [
     "listStorageObjectIds",
     "getStorageObject",
@@ -181,6 +188,12 @@ test("Token Host direct read adapter honors admin route hints", async () => {
     "getAccountUsage",
     "listAccountObjectIds",
     "listAccountIds",
+    "listDatasetKeys",
+    "getDatasetRecord",
+    "listCoordinatorAddresses",
+    "coordinatorPolicies",
+    "listRelayerAddresses",
+    "isRelayer",
   ]);
 
   calls.length = 0;
@@ -221,6 +234,13 @@ test("Token Host direct read adapter honors admin route hints", async () => {
     "pending_external_evidence",
   );
   assert.equal(uploadingObject.reconciliationStatus, "matched");
+  assert.equal(objects.body.summary.accountCount, 2);
+  assert.equal(objects.body.summary.datasetCount, 1);
+  assert.equal(objects.body.summary.coordinatorCount, 1);
+  assert.equal(objects.body.summary.relayerCount, 1);
+  assert.equal(objects.body.summary.mismatchCount, 0);
+  assert.equal(objects.body.summary.warningCount, 0);
+  assert.equal(objects.body.summary.pendingEvidenceCount, 1);
   assert.deepEqual(calls.map((call) => call.functionName), [
     "listStorageObjectIds",
     "getStorageObject",
@@ -230,10 +250,18 @@ test("Token Host direct read adapter honors admin route hints", async () => {
     "getCopyReceipts",
     "receiptPayer",
     "listStorageObjectIds",
+    "listAccountIds",
+    "getAccountUsage",
+    "listAccountObjectIds",
+    "getAccountUsage",
+    "listAccountObjectIds",
+    "listAccountIds",
     "listDatasetKeys",
     "getDatasetRecord",
     "listCoordinatorAddresses",
     "coordinatorPolicies",
+    "listRelayerAddresses",
+    "isRelayer",
   ]);
 
   calls.length = 0;
