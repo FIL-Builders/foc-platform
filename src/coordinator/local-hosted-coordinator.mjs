@@ -345,10 +345,7 @@ function validateRegistryRequest(prepared, object) {
   compareRegistryUint(mismatches, object, prepared.request, "maxCost");
   compareRegistryUint(mismatches, object, prepared.request, "requestExpiresAt");
   compareRegistryBoolean(mismatches, object, prepared.request, "withCDN");
-  compareRegistryString(mismatches, object, prepared.request, "contentHash", {
-    isPresent: (value) => hasContentHash(value) && !equalBytes32(value, ZERO_BYTES32),
-    normalize: (value) => String(value).toLowerCase(),
-  });
+  compareRegistryContentHash(mismatches, object, prepared.request);
   compareRegistryString(mismatches, object, prepared.request, "contentHashAlgorithm");
   compareRegistryString(mismatches, object, prepared.request, "metadataHash", {
     normalize: (value) => String(value).toLowerCase(),
@@ -384,6 +381,24 @@ function compareRegistryBoolean(mismatches, object, request, field) {
     registry: String(Boolean(object[field])),
     request: String(Boolean(request[field])),
   });
+}
+
+function compareRegistryContentHash(mismatches, object, request) {
+  if (!hasRegistryField(object, "contentHash")) return;
+  const registryValue = normalizeRegistryContentHash(object.contentHash);
+  const requestValue = hasContentHash(request?.contentHash)
+    ? normalizeRegistryContentHash(request.contentHash)
+    : ZERO_BYTES32;
+  if (registryValue === requestValue) return;
+  mismatches.push({
+    field: "contentHash",
+    registry: registryValue,
+    request: requestValue,
+  });
+}
+
+function normalizeRegistryContentHash(value) {
+  return hasContentHash(value) ? String(value).toLowerCase() : ZERO_BYTES32;
 }
 
 function compareRegistryString(

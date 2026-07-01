@@ -848,6 +848,54 @@ test("local hosted coordinator validates registry request details before FOC upl
   assert.equal(uploadCalls.length, 0);
 });
 
+test("local hosted coordinator rejects stale content hash when registry stores zero", async () => {
+  const registry = createRegistry();
+  const bytes = new Uint8Array([1, 2, 3, 4]);
+  const uploadCalls = [];
+  registry.readUploadStatus = async function readUploadStatus({ objectId }) {
+    return {
+      object: {
+        objectId: String(objectId),
+        status: this.status,
+        size: 4n,
+        requestedCopies: 2,
+        maxCost: 10n,
+        contentHash: ZERO_BYTES32,
+      },
+    };
+  };
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request: requestFixture({ size: 4n, contentHash: CONTENT_HASH }),
+        bytes,
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "registry_request_mismatch");
+      assert.deepEqual(error.details.mismatches, [
+        {
+          field: "contentHash",
+          registry: ZERO_BYTES32,
+          request: CONTENT_HASH,
+        },
+      ]);
+      return true;
+    },
+  );
+
+  assert.equal(registry.startCalls.length, 0);
+  assert.equal(registry.finalizeCalls.length, 0);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 0);
+});
+
 test("local hosted coordinator validates request content hash when algorithm is available", async () => {
   const registry = createRegistry();
   const bytes = new Uint8Array([1, 2, 3, 4]);
