@@ -83,20 +83,22 @@ test("ops validation rejects scoped mnemonic and seed env values in production",
 });
 
 test("ops validation rejects generic unprefixed raw hex secret env values in production", async () => {
-  const rawHexKey = "11".repeat(32);
+  const raw32ByteHex = "11".repeat(32);
+  const raw64ByteHex = "22".repeat(64);
+  const cases = [
+    ["WALLET_PRIVATE_KEY", raw32ByteHex],
+    ["DEPLOYER_SECRET", raw32ByteHex],
+    ["WALLET_PRIVATE_KEY_HEX", raw32ByteHex],
+    ["DEPLOYER_SECRET_HEX", raw64ByteHex],
+  ];
 
-  for (const key of [
-    "WALLET_PRIVATE_KEY",
-    "DEPLOYER_SECRET",
-    "WALLET_PRIVATE_KEY_HEX",
-    "DEPLOYER_SECRET_HEX",
-  ]) {
+  for (const [key, value] of cases) {
     await assert.rejects(
       () =>
         validateOpsConfig({
           env: {
             FOC_PLATFORM_OPS_PROFILE: "production",
-            [key]: rawHexKey,
+            [key]: value,
             FOC_PLATFORM_ROOT_KMS_KEY_REF: "projects/example/keyRings/foc/cryptoKeys/root",
             FOC_COORDINATOR_KMS_KEY_REF: "projects/example/keyRings/foc/cryptoKeys/coordinator",
             FOC_PLATFORM_ADMIN_AUTH_AUDIENCE: "https://admin.example.invalid",
@@ -115,6 +117,7 @@ test("ops validation rejects generic unprefixed raw hex secret env values in pro
 
 test("ops validation rejects concrete unprefixed tracked hex secret material", async () => {
   const workspaceRoot = await createMinimalOpsWorkspace({
+    "long-secret.env": `DEPLOYER_SECRET_HEX=${"cd".repeat(64)}\n`,
     "secrets.env": `WALLET_PRIVATE_KEY=${"ab".repeat(32)}\n`,
   });
   try {
@@ -127,7 +130,10 @@ test("ops validation rejects concrete unprefixed tracked hex secret material", a
       (error) => {
         assert.equal(error instanceof OpsConfigError, true);
         assert.equal(error.code, "tracked_secret_material");
-        assert.deepEqual(error.details.findings.map((finding) => finding.file), ["secrets.env"]);
+        assert.deepEqual(
+          error.details.findings.map((finding) => finding.file).sort(),
+          ["long-secret.env", "secrets.env"],
+        );
         return true;
       },
     );
