@@ -126,6 +126,7 @@ function prepareInput(input = {}, config, sessionKey, clock) {
     now: clock(),
     requiredPermissionsHash: config.permissionsHash ?? ZERO_BYTES32,
     requiredSessionKeyAddress: config.sessionKeyAddress ?? config.coordinatorAddress,
+    requiredSessionKeyExpiresAt: config.sessionKeyExpiresAt,
     requiredRootAddress: config.rootAddress,
   });
 

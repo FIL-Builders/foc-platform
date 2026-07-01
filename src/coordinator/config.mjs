@@ -73,6 +73,7 @@ export function assertActiveSessionKey(sessionKey, {
   now = currentUnixTime(),
   requiredPermissionsHash = ZERO_BYTES32,
   requiredSessionKeyAddress,
+  requiredSessionKeyExpiresAt,
   requiredRootAddress,
 } = {}) {
   if (!sessionKey) {
@@ -115,6 +116,33 @@ export function assertActiveSessionKey(sessionKey, {
       expiresAt: sessionKey.expiresAt.toString(),
       now: BigInt(now).toString(),
     });
+  }
+  if (requiredSessionKeyExpiresAt !== undefined && requiredSessionKeyExpiresAt !== null) {
+    const expectedExpiresAt = normalizeUint(requiredSessionKeyExpiresAt, "requiredSessionKeyExpiresAt");
+    if (expectedExpiresAt !== 0n && BigInt(now) > expectedExpiresAt) {
+      throw new CoordinatorConfigError(
+        "expired_session_key",
+        "configured coordinator session key is expired",
+        {
+          sessionKeyAddress: sessionKey.address,
+          expiresAt: expectedExpiresAt.toString(),
+          now: BigInt(now).toString(),
+        },
+      );
+    }
+    if (
+      expectedExpiresAt !== 0n &&
+      (sessionKey.expiresAt === 0n || sessionKey.expiresAt > expectedExpiresAt)
+    ) {
+      throw new CoordinatorConfigError(
+        "session_key_expiry_mismatch",
+        "coordinator session key expiry exceeds config",
+        {
+          maximum: expectedExpiresAt.toString(),
+          actual: sessionKey.expiresAt.toString(),
+        },
+      );
+    }
   }
 
   const expected = normalizeBytes32(requiredPermissionsHash, "requiredPermissionsHash", ZERO_BYTES32);

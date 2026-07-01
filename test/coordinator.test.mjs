@@ -77,17 +77,20 @@ test("session-key config validates expiry and permissions hash", async () => {
     FOC_SESSION_KEY_EXPIRES_AT: "500",
     FOC_SESSION_KEY_PERMISSIONS_HASH: permissionsHash,
   });
+  const request = requestFixture({ size: 4n });
   const sessionKey = createCoordinatorSessionKey({
     address: SESSION,
     rootAddress: ROOT,
     expiresAt: 499n,
     permissionsHash,
   });
+  const registry = createRegistry();
+  const uploadCalls = [];
   const coordinator = createLocalHostedCoordinator({
     config,
     sessionKey,
-    registry: createRegistry(),
-    focClient: createFocClient(),
+    registry,
+    focClient: createFocClient({ uploadCalls }),
     clock: () => 500n,
   });
 
@@ -95,7 +98,7 @@ test("session-key config validates expiry and permissions hash", async () => {
     () =>
       coordinator.executeUpload({
         objectId: 1n,
-        request: requestFixture({ size: 4n }),
+        request,
         bytes: new Uint8Array([1, 2, 3, 4]),
       }),
     (error) => {
@@ -104,6 +107,109 @@ test("session-key config validates expiry and permissions hash", async () => {
       return true;
     },
   );
+  assert.equal(registry.startCalls.length, 0);
+  assert.equal(registry.finalizeCalls.length, 0);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 0);
+
+  const configuredExpiredRegistry = createRegistry();
+  const configuredExpiredUploadCalls = [];
+  const configuredExpiredCoordinator = createLocalHostedCoordinator({
+    config,
+    sessionKey: createCoordinatorSessionKey({
+      address: SESSION,
+      rootAddress: ROOT,
+      expiresAt: 1000n,
+      permissionsHash,
+    }),
+    registry: configuredExpiredRegistry,
+    focClient: createFocClient({ uploadCalls: configuredExpiredUploadCalls }),
+    clock: () => 501n,
+  });
+  await assert.rejects(
+    () =>
+      configuredExpiredCoordinator.executeUpload({
+        objectId: 1n,
+        request,
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "CoordinatorConfigError");
+      assert.equal(error.code, "expired_session_key");
+      assert.equal(error.details.expiresAt, "500");
+      return true;
+    },
+  );
+  assert.equal(configuredExpiredRegistry.startCalls.length, 0);
+  assert.equal(configuredExpiredRegistry.finalizeCalls.length, 0);
+  assert.equal(configuredExpiredRegistry.failCalls.length, 0);
+  assert.equal(configuredExpiredUploadCalls.length, 0);
+
+  const mismatchRegistry = createRegistry();
+  const mismatchUploadCalls = [];
+  const mismatchCoordinator = createLocalHostedCoordinator({
+    config,
+    sessionKey: createCoordinatorSessionKey({
+      address: SESSION,
+      rootAddress: ROOT,
+      expiresAt: 1000n,
+      permissionsHash,
+    }),
+    registry: mismatchRegistry,
+    focClient: createFocClient({ uploadCalls: mismatchUploadCalls }),
+    clock: () => 100n,
+  });
+  await assert.rejects(
+    () =>
+      mismatchCoordinator.executeUpload({
+        objectId: 1n,
+        request,
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "CoordinatorConfigError");
+      assert.equal(error.code, "session_key_expiry_mismatch");
+      assert.deepEqual(error.details, { maximum: "500", actual: "1000" });
+      return true;
+    },
+  );
+  assert.equal(mismatchRegistry.startCalls.length, 0);
+  assert.equal(mismatchRegistry.finalizeCalls.length, 0);
+  assert.equal(mismatchRegistry.failCalls.length, 0);
+  assert.equal(mismatchUploadCalls.length, 0);
+
+  const noExpiryRegistry = createRegistry();
+  const noExpiryUploadCalls = [];
+  const noExpiryCoordinator = createLocalHostedCoordinator({
+    config,
+    sessionKey: createCoordinatorSessionKey({
+      address: SESSION,
+      rootAddress: ROOT,
+      expiresAt: 0n,
+      permissionsHash,
+    }),
+    registry: noExpiryRegistry,
+    focClient: createFocClient({ uploadCalls: noExpiryUploadCalls }),
+    clock: () => 100n,
+  });
+  await assert.rejects(
+    () =>
+      noExpiryCoordinator.executeUpload({
+        objectId: 1n,
+        request,
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "CoordinatorConfigError");
+      assert.equal(error.code, "session_key_expiry_mismatch");
+      assert.deepEqual(error.details, { maximum: "500", actual: "0" });
+      return true;
+    },
+  );
+  assert.equal(noExpiryRegistry.startCalls.length, 0);
+  assert.equal(noExpiryRegistry.finalizeCalls.length, 0);
+  assert.equal(noExpiryRegistry.failCalls.length, 0);
+  assert.equal(noExpiryUploadCalls.length, 0);
 });
 
 test("session-key config validates configured key and root identity", async () => {
