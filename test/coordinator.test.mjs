@@ -250,6 +250,49 @@ test("receipt mapping rejects completed copy count mismatches", () => {
   );
 });
 
+test("receipt mapping rejects over-budget actual cost before finalization", () => {
+  assert.throws(
+    () =>
+      mapSynapseResultToUploadReceipt({
+        payer: PAYER,
+        request: requestFixture({ size: 4n, requestedCopies: 1 }),
+        result: {
+          actualCost: 11n,
+          copies: [copyFixture()],
+        },
+      }),
+    (error) => {
+      assert.equal(error.name, "CoordinatorReceiptError");
+      assert.equal(error.code, "actual_cost_exceeds_max_cost");
+      assert.deepEqual(error.details, { actualCost: "11", maxCost: "10" });
+      return true;
+    },
+  );
+});
+
+test("receipt mapping rejects over-complete copy receipts before finalization", () => {
+  assert.throws(
+    () =>
+      mapSynapseResultToUploadReceipt({
+        payer: PAYER,
+        request: requestFixture({ size: 4n, requestedCopies: 1 }),
+        result: {
+          actualCost: 7n,
+          copies: [
+            copyFixture({ providerId: 111n, datasetId: 222n, pieceId: 333n }),
+            copyFixture({ providerId: 112n, datasetId: 223n, pieceId: 334n }),
+          ],
+        },
+      }),
+    (error) => {
+      assert.equal(error.name, "CoordinatorReceiptError");
+      assert.equal(error.code, "completed_copies_exceed_requested");
+      assert.deepEqual(error.details, { completedCopies: "2", requestedCopies: "1" });
+      return true;
+    },
+  );
+});
+
 test("upload bytes validate declared size and optional keccak content commitment", () => {
   const bytes = new Uint8Array([1, 2, 3, 4]);
   const contentHash = keccak256(bytes);
@@ -648,6 +691,79 @@ test("local hosted coordinator records failUpload and caches failed idempotency 
   assert.equal(registry.failCalls.length, 1);
   assert.equal(registry.failCalls[0].chargedCost, 0n);
   assert.equal(registry.failCalls[0].reasonHash, mapFailureToReasonHash(uploadError));
+});
+
+test("local hosted coordinator records over-budget FOC receipts before finalization", async () => {
+  const registry = createRegistry();
+  const coordinator = createCoordinator({
+    registry,
+    focClient: {
+      async upload() {
+        return {
+          payer: PAYER,
+          actualCost: 11n,
+          copies: [copyFixture()],
+        };
+      },
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request: requestFixture({ size: 4n, requestedCopies: 1 }),
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "coordinator_upload_failed");
+      assert.equal(error.details.sourceCode, "actual_cost_exceeds_max_cost");
+      return true;
+    },
+  );
+
+  assert.equal(registry.startCalls.length, 1);
+  assert.equal(registry.finalizeCalls.length, 0);
+  assert.equal(registry.failCalls.length, 1);
+});
+
+test("local hosted coordinator records over-complete FOC receipts before finalization", async () => {
+  const registry = createRegistry();
+  const coordinator = createCoordinator({
+    registry,
+    focClient: {
+      async upload() {
+        return {
+          payer: PAYER,
+          actualCost: 7n,
+          copies: [
+            copyFixture({ providerId: 111n, datasetId: 222n, pieceId: 333n }),
+            copyFixture({ providerId: 112n, datasetId: 223n, pieceId: 334n }),
+          ],
+        };
+      },
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request: requestFixture({ size: 4n, requestedCopies: 1 }),
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "coordinator_upload_failed");
+      assert.equal(error.details.sourceCode, "completed_copies_exceed_requested");
+      return true;
+    },
+  );
+
+  assert.equal(registry.startCalls.length, 1);
+  assert.equal(registry.finalizeCalls.length, 0);
+  assert.equal(registry.failCalls.length, 1);
 });
 
 test("local hosted coordinator caches failure even when registry failUpload throws", async () => {

@@ -84,12 +84,28 @@ export function mapSynapseResultToUploadReceipt({
   const requestedCopies = numberOrDefault(request.requestedCopies, 1, "requestedCopies");
   const copies = normalizeCopies(result.copies ?? []);
   const completedCopies = normalizeCompletedCopies(result.completedCopies, copies.length);
+  const actualCost = normalizeUint(result.actualCost ?? 0n, "actualCost");
+  const maxCost = normalizeUint(request.maxCost ?? 0n, "maxCost");
+  if (actualCost > maxCost) {
+    throw new CoordinatorReceiptError(
+      "actual_cost_exceeds_max_cost",
+      "actual cost exceeds upload request maxCost",
+      { actualCost: actualCost.toString(), maxCost: maxCost.toString() },
+    );
+  }
+  if (completedCopies > requestedCopies) {
+    throw new CoordinatorReceiptError(
+      "completed_copies_exceed_requested",
+      "completed copy count exceeds requested copies",
+      { completedCopies: String(completedCopies), requestedCopies: String(requestedCopies) },
+    );
+  }
   const finalizationStatus = resolveFinalizationStatus({
     requestedCopies,
     completedCopies,
     explicitStatus: result.finalizationStatus,
   });
-  const actualCost = normalizeUint(result.actualCost ?? 0n, "actualCost");
+  validateFinalizationStatusForCopies({ finalizationStatus, completedCopies, requestedCopies });
   const pieceCidHash = normalizeBytes32(
     result.pieceCidHash ?? hashText(`piece-cid:${result.pieceCid ?? ""}`),
     "pieceCidHash",
@@ -168,6 +184,40 @@ function resolveFinalizationStatus({ requestedCopies, completedCopies, explicitS
   if (completedCopies === 0) return FINALIZATION_STATUS.Failed;
   if (completedCopies === requestedCopies) return FINALIZATION_STATUS.Committed;
   return FINALIZATION_STATUS.Partial;
+}
+
+function validateFinalizationStatusForCopies({
+  finalizationStatus,
+  completedCopies,
+  requestedCopies,
+}) {
+  if (
+    finalizationStatus === FINALIZATION_STATUS.Committed &&
+    completedCopies !== requestedCopies
+  ) {
+    throw new CoordinatorReceiptError(
+      "finalization_status_mismatch",
+      "committed receipts must complete every requested copy",
+      { completedCopies: String(completedCopies), requestedCopies: String(requestedCopies) },
+    );
+  }
+  if (
+    finalizationStatus === FINALIZATION_STATUS.Partial &&
+    (completedCopies === 0 || completedCopies >= requestedCopies)
+  ) {
+    throw new CoordinatorReceiptError(
+      "finalization_status_mismatch",
+      "partial receipts must complete fewer than requested copies",
+      { completedCopies: String(completedCopies), requestedCopies: String(requestedCopies) },
+    );
+  }
+  if (finalizationStatus === FINALIZATION_STATUS.Failed && completedCopies !== 0) {
+    throw new CoordinatorReceiptError(
+      "finalization_status_mismatch",
+      "failed receipts must not include completed copies",
+      { completedCopies: String(completedCopies) },
+    );
+  }
 }
 
 function normalizeCopies(copies) {
