@@ -18,7 +18,8 @@ const DEFAULT_LIMITS = Object.freeze({
 
 const SCOPED_SECRET_ENV_PATTERN =
   /^(?:PRIVATE_KEY|MNEMONIC|SEED|PLATFORM_ROOT_(?:PRIVATE_KEY|MNEMONIC|SEED|SECRET)|COORDINATOR_(?:PRIVATE_KEY|MNEMONIC|SEED|SECRET)|FOC_.*(?:PRIVATE_KEY|MNEMONIC|SEED|SECRET))$/;
-const GENERIC_SECRET_ENV_PATTERN = /(?:PRIVATE_KEY|MNEMONIC|SEED|SECRET)$/;
+const GENERIC_MNEMONIC_OR_SEED_ENV_PATTERN = /(?:MNEMONIC|SEED)$/;
+const GENERIC_RAW_SECRET_ENV_PATTERN = /(?:PRIVATE_KEY|SECRET)$/;
 const RAW_HEX_SECRET_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 const TRACKED_SECRET_PATTERN =
   /(?:\b[A-Z0-9_]*(?:PRIVATE_KEY|MNEMONIC|SEED|SECRET)[A-Z0-9_]*\b|["']?(?:privateKey|mnemonic|seed|secret)["']?)\s*[:=]\s*["']?0x[0-9a-fA-F]{64}\b/g;
@@ -109,7 +110,8 @@ function rejectRawSecretEnv(env) {
     .filter(
       (key) =>
         SCOPED_SECRET_ENV_PATTERN.test(key) ||
-        (GENERIC_SECRET_ENV_PATTERN.test(key) && RAW_HEX_SECRET_PATTERN.test(String(env[key]))),
+        GENERIC_MNEMONIC_OR_SEED_ENV_PATTERN.test(key) ||
+        (GENERIC_RAW_SECRET_ENV_PATTERN.test(key) && RAW_HEX_SECRET_PATTERN.test(String(env[key]))),
     );
   if (keys.length > 0) {
     throw new OpsConfigError(

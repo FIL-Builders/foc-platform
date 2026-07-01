@@ -40,7 +40,17 @@ test("ops validation rejects raw production secret env values", async () => {
 });
 
 test("ops validation rejects scoped mnemonic and seed env values in production", async () => {
-  for (const key of ["MNEMONIC", "SEED", "PLATFORM_ROOT_MNEMONIC", "COORDINATOR_SEED", "FOC_COORDINATOR_MNEMONIC"]) {
+  const secretKeys = [
+    "MNEMONIC",
+    "SEED",
+    "PLATFORM_ROOT_MNEMONIC",
+    "COORDINATOR_SEED",
+    "FOC_COORDINATOR_MNEMONIC",
+    "WALLET_MNEMONIC",
+    "DEPLOYER_SEED",
+  ];
+
+  for (const key of secretKeys) {
     await assert.rejects(
       () =>
         validateOpsConfig({

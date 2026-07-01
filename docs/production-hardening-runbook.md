@@ -38,8 +38,9 @@ Local Calibration demos may use a funded devnet key from the operator shell.
 That key must stay local, must not be committed, and must not be copied into
 issues, PRs, Worker vars, generated UI, or artifacts. The production validation
 profile rejects raw `PRIVATE_KEY`, `PLATFORM_ROOT_PRIVATE_KEY`,
-`COORDINATOR_PRIVATE_KEY`, `FOC_*PRIVATE_KEY`, mnemonic, seed, and secret env
-values.
+`COORDINATOR_PRIVATE_KEY`, `FOC_*PRIVATE_KEY`, scoped secret env names, generic
+mnemonic/seed env names, and generic private-key/secret env names when they
+contain raw 64-byte hex material.
 
 ## Rate Limits And Timeouts
 
