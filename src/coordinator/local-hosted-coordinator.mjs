@@ -34,6 +34,7 @@ const UPLOAD_STATUS_LABELS = Object.freeze([
   "Deleted",
 ]);
 const PRE_FOC_RETRYABLE_ERROR = Symbol("preFocRetryableError");
+const FINALIZE_RECEIPT = Symbol("finalizeReceipt");
 
 export function createLocalHostedCoordinator({
   config,
@@ -76,17 +77,29 @@ export function createLocalHostedCoordinator({
 
       idempotencyStore.set(key, { state: "running" });
       try {
-        const result = await executePreparedUpload({
-          prepared,
-          registry,
-          focClient,
-          sessionKey,
-          config,
-          clock,
-        });
+        const result = cached.pendingFinalize
+          ? await finalizePreparedReceipt({
+              prepared,
+              registry,
+              receipt: cached.pendingFinalize.receipt,
+              sessionKey,
+              config,
+            })
+          : await executePreparedUpload({
+              prepared,
+              registry,
+              focClient,
+              sessionKey,
+              config,
+              clock,
+            });
         idempotencyStore.set(key, { state: "completed", result });
         return result;
       } catch (error) {
+        if (error?.code === "finalize_upload_failed" && error[FINALIZE_RECEIPT]) {
+          idempotencyStore.set(key, { state: "pending_finalize", receipt: error[FINALIZE_RECEIPT] });
+          throw error;
+        }
         if (isPreFocRetryableError(error) || error?.code === "finalize_upload_failed") {
           idempotencyStore.delete(key);
           throw error;
@@ -242,6 +255,9 @@ function cachedIdempotencyResult(existing, details) {
       idempotencyKey: details.idempotencyKey,
     });
   }
+  if (existing?.state === "pending_finalize") {
+    return { hit: false, pendingFinalize: existing };
+  }
   return { hit: false };
 }
 
@@ -253,6 +269,7 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
       status: currentObject.status,
     });
   }
+  validateRegistryRequest(prepared, currentObject);
   assertUploadRequestNotExpired({ prepared, object: currentObject, now: clock() });
 
   if (currentObject?.status !== "Uploading") {
@@ -279,6 +296,10 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
     request: prepared.request,
     payer: synapseResult?.payer ?? config.rootAddress ?? sessionKey.rootAddress,
   });
+  return finalizePreparedReceipt({ prepared, registry, receipt, sessionKey, config });
+}
+
+async function finalizePreparedReceipt({ prepared, registry, receipt, sessionKey, config }) {
   let finalizeResult;
   try {
     finalizeResult = await requiredCall(registry.finalizeUpload, registry, {
@@ -296,7 +317,7 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
       error,
     });
     if (recovered) return recovered;
-    throw new HostedCoordinatorError(
+    const finalizeError = new HostedCoordinatorError(
       "finalize_upload_failed",
       "registry finalization failed after FOC upload; retry without failing upload",
       {
@@ -306,9 +327,85 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
       },
       error,
     );
+    Object.defineProperty(finalizeError, FINALIZE_RECEIPT, {
+      value: receipt,
+      configurable: true,
+    });
+    throw finalizeError;
   }
 
   return Object.freeze(uploadResult({ prepared, receipt, registryResult: finalizeResult, config }));
+}
+
+function validateRegistryRequest(prepared, object) {
+  if (!object || typeof object !== "object") return;
+  const mismatches = [];
+  compareRegistryUint(mismatches, object, prepared.request, "size");
+  compareRegistryUint(mismatches, object, prepared.request, "requestedCopies");
+  compareRegistryUint(mismatches, object, prepared.request, "maxCost");
+  compareRegistryUint(mismatches, object, prepared.request, "requestExpiresAt");
+  compareRegistryBoolean(mismatches, object, prepared.request, "withCDN");
+  compareRegistryString(mismatches, object, prepared.request, "contentHash", {
+    isPresent: (value) => hasContentHash(value) && !equalBytes32(value, ZERO_BYTES32),
+    normalize: (value) => String(value).toLowerCase(),
+  });
+  compareRegistryString(mismatches, object, prepared.request, "contentHashAlgorithm");
+  compareRegistryString(mismatches, object, prepared.request, "metadataHash", {
+    normalize: (value) => String(value).toLowerCase(),
+  });
+  if (mismatches.length === 0) return;
+  throw markPreFocRetryableError(
+    new HostedCoordinatorError(
+      "registry_request_mismatch",
+      "registry upload request does not match prepared request",
+      {
+        objectId: String(prepared.objectId),
+        mismatches,
+      },
+    ),
+  );
+}
+
+function compareRegistryUint(mismatches, object, request, field) {
+  if (!hasRegistryField(object, field)) return;
+  if (equalUint(object[field], request[field])) return;
+  mismatches.push({
+    field,
+    registry: String(object[field]),
+    request: request[field] === undefined || request[field] === null ? undefined : String(request[field]),
+  });
+}
+
+function compareRegistryBoolean(mismatches, object, request, field) {
+  if (!hasRegistryField(object, field)) return;
+  if (Boolean(object[field]) === Boolean(request[field])) return;
+  mismatches.push({
+    field,
+    registry: String(Boolean(object[field])),
+    request: String(Boolean(request[field])),
+  });
+}
+
+function compareRegistryString(
+  mismatches,
+  object,
+  request,
+  field,
+  { isPresent = (value) => hasRegistryField({ value }, "value"), normalize = String } = {},
+) {
+  if (!isPresent(object?.[field])) return;
+  const registryValue = normalize(object[field]);
+  const requestValue = isPresent(request?.[field]) ? normalize(request[field]) : undefined;
+  if (registryValue === requestValue) return;
+  mismatches.push({
+    field,
+    registry: registryValue,
+    request: requestValue,
+  });
+}
+
+function hasRegistryField(value, field) {
+  return value?.[field] !== undefined && value?.[field] !== null && value?.[field] !== "";
 }
 
 async function preFocRetryableCall(call) {
