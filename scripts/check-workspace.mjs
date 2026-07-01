@@ -56,11 +56,13 @@ if (privateKeyPattern.test(envExample)) {
 }
 
 const wrangler = await readFile("wrangler.jsonc", "utf8");
-if (/PRIVATE_KEY|SECRET|WALLET_SEED/.test(wrangler)) {
+const secretSurfacePattern =
+  /\bprivate[\s_-]*key\b|\bprivateKey\b|\bwallet[\s_-]*seed\b|\bsecret\b|wrangler\s+secret\s+put/i;
+if (secretSurfacePattern.test(wrangler)) {
   throw new Error("wrangler.jsonc must not contain secret bindings or key placeholders");
 }
 const workerSource = await readFile("src/worker/calibration-demo.mjs", "utf8");
-if (/process\.env|PRIVATE_KEY|WALLET_SEED|wrangler secret put/.test(workerSource)) {
+if (/process\.env/i.test(workerSource) || secretSurfacePattern.test(workerSource)) {
   throw new Error("Worker source must stay read-only and secret-free");
 }
 

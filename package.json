@@ -18,7 +18,7 @@
     "test:tokenhost": "node --test test/tokenhost-demo.test.mjs",
     "worker:dev": "npx wrangler dev --local",
     "worker:dry-run": "npx wrangler deploy --dry-run --outdir /tmp/foc-platform-worker-dry-run",
-    "worker:types": "npx wrangler types src/worker/worker-configuration.d.ts && perl -0pi -e 's/[ \\\\t]+$//mg' src/worker/worker-configuration.d.ts"
+    "worker:types": "npx wrangler types src/worker/worker-configuration.d.ts && node scripts/trim-trailing-whitespace.mjs src/worker/worker-configuration.d.ts"
   },
   "dependencies": {
     "viem": "^2.54.1"

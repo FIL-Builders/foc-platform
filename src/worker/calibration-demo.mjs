@@ -7,8 +7,6 @@ const DEFAULT_REGISTRY_DEPLOY_TX =
 const DEFAULT_REGISTRY_RUNTIME_SHA256 =
   "0xed478a27e255a1b27989ffa4f2fcbf38f1a9ec61a84c8d3e20aceb4e26f72040";
 const DEFAULT_RPC_URL = "https://api.calibration.node.glif.io/rpc/v1";
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const ZERO_BYTES32 = `0x${"0".repeat(64)}`;
 const UPLOAD_STATUS_LABELS = Object.freeze([
   "None",
   "Requested",
@@ -226,7 +224,7 @@ export function buildDemoEvidence(env = {}) {
     generatedAt: optionalString(env.FOC_PLATFORM_DEMO_GENERATED_AT) ?? new Date(0).toISOString(),
     mode: optionalString(env.FOC_PLATFORM_DEMO_MODE) ?? "partial_phase0_registry_only",
     network: optionalString(env.FOC_PLATFORM_DEMO_NETWORK) ?? "filecoin_calibration",
-    chainId: Number(optionalString(env.FOC_PLATFORM_DEMO_CHAIN_ID) ?? "314159"),
+    chainId: parsePositiveInteger(env.FOC_PLATFORM_DEMO_CHAIN_ID, 314159),
     registry: {
       address: isAddress(registryAddress) ? getAddress(registryAddress) : registryAddress,
       deployTxHash: optionalString(env.FOC_PLATFORM_REGISTRY_DEPLOY_TX) ?? DEFAULT_REGISTRY_DEPLOY_TX,
@@ -258,7 +256,7 @@ export function buildDemoEvidence(env = {}) {
     boundaries: [
       "The Worker serves public evidence and performs public registry reads only.",
       "Local operator scripts perform privileged FOC upload and registry transaction submission.",
-      "No private key, wallet seed, or session key belongs in wrangler.jsonc, Worker source, generated UI, or committed artifacts.",
+      "No signing credentials belong in wrangler.jsonc, Worker source, generated UI, or committed artifacts.",
     ],
   };
 }
@@ -609,6 +607,13 @@ function parseJsonObject(value) {
   } catch {
     return {};
   }
+}
+
+function parsePositiveInteger(value, fallback) {
+  const raw = optionalString(value);
+  if (!raw || !/^\d+$/.test(raw)) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function decimal(value) {

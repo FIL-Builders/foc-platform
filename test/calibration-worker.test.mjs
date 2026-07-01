@@ -25,6 +25,7 @@ test("Worker evidence builder keeps privileged credentials out of public state",
   assert.equal(evidence.demo.objectId, "42");
   assert.equal(evidence.demo.accountId, ACCOUNT_ID);
   assert.equal(evidence.demo.registryTxHashes.request, "0xabc");
+  assert.equal(buildDemoEvidence({ FOC_PLATFORM_DEMO_CHAIN_ID: "not-a-number" }).chainId, 314159);
   assert.equal(evidence.worker.privilegedActions, false);
   assert.equal(JSON.stringify(evidence).includes("should-not-be-used"), false);
 });
