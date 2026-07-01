@@ -40,6 +40,12 @@ dataset ids, piece CID, retrieval URL, and public registry transaction hashes.
 Do not add private keys, wallet seeds, or session keys to `wrangler.jsonc`,
 Worker source, generated UI, or committed artifacts.
 
+The Worker is part of the public demo evidence path only. Run
+`pnpm ops:validate`, `pnpm ops:smoke -- --iterations 3`, and `pnpm worker:dry-run`
+before changing or redeploying it. The security and recovery boundary is
+documented in
+[`docs/production-hardening-runbook.md`](./production-hardening-runbook.md).
+
 ## Public Endpoints
 
 | Route | Purpose |

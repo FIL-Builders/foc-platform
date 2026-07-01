@@ -37,7 +37,7 @@ workspace.
 
 See [`spec.md`](./spec.md).
 
-The design is not production-ready, but it now selects a v1 implementation path to validate: platform EOA/KMS payer, FOC session-key coordinator, hosted coordination, onchain request/object/usage/receipt state, and a Token Host Builder-first scaffold for the generated app, admin/read surfaces, upload adapters, manifests, and sponsored transaction wiring. The workspace includes a local registry artifact/read model, a dev-only upload spine test that exercises request, start, deterministic mocked receipt finalization, object reads, usage reads, and log projection, plus read-only admin/reconciliation projections for object, usage, dataset, provider, coordinator, and mismatch views. A partial Phase 0 Calibration run has deployed and verified the registry bytecode on chain `314159`; see [`docs/phase0-calibration-report.md`](./docs/phase0-calibration-report.md). The full FOC/Synapse/session-key compatibility matrix remains open, so future payment and coordinator modes remain compatibility-gated by Phase 0 evidence.
+The design is not production-ready, but it now selects a v1 implementation path to validate: platform EOA/KMS payer, FOC session-key coordinator, hosted coordination, onchain request/object/usage/receipt state, and a Token Host Builder-first scaffold for the generated app, admin/read surfaces, upload adapters, manifests, and sponsored transaction wiring. The workspace includes a local registry artifact/read model, a dev-only upload spine test that exercises request, start, deterministic mocked receipt finalization, object reads, usage reads, and log projection, plus read-only admin/reconciliation projections for object, usage, dataset, provider, coordinator, and mismatch views. A partial Phase 0 Calibration run has deployed and verified the registry bytecode on chain `314159`; see [`docs/phase0-calibration-report.md`](./docs/phase0-calibration-report.md). The full FOC/Synapse/session-key compatibility matrix remains open, so future payment and coordinator modes remain compatibility-gated by Phase 0 evidence. The current security and operations boundary is captured in [`docs/production-hardening-runbook.md`](./docs/production-hardening-runbook.md).
 
 ## Related projects
 
@@ -73,6 +73,12 @@ build:tokenhost` regenerates the committed wrapper manifest. See
 [`docs/platform-api.md`](./docs/platform-api.md),
 [`docs/admin-reconciliation.md`](./docs/admin-reconciliation.md), and
 [`docs/tokenhost-demo.md`](./docs/tokenhost-demo.md).
+`pnpm ops:validate` runs the tracked-file secret scan plus operations config
+validation, `pnpm ops:smoke -- --iterations 3` runs the deterministic
+route-equivalent API/coordinator baseline, and `pnpm test:ops` covers those
+operator checks. These commands are mocked/local and intentionally report
+`productionReady: false` until the remaining Calibration and hosted coordinator
+gates close.
 
 The Calibration Worker demo in [`wrangler.jsonc`](./wrangler.jsonc) and
 [`src/worker/calibration-demo.mjs`](./src/worker/calibration-demo.mjs) exposes a
@@ -84,4 +90,5 @@ available at `https://foc-platform-calibration-demo.snissn.workers.dev`. Run
 deploy bundle. The Worker must not receive private keys or session keys;
 privileged FOC upload and registry transaction submission stay in the local
 operator runbook. See
-[`docs/calibration-worker-demo.md`](./docs/calibration-worker-demo.md).
+[`docs/calibration-worker-demo.md`](./docs/calibration-worker-demo.md) and
+[`docs/production-hardening-runbook.md`](./docs/production-hardening-runbook.md).

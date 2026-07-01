@@ -14,6 +14,7 @@ const requiredFiles = [
   "docs/calibration-worker-demo.md",
   "docs/deployment.md",
   "docs/admin-reconciliation.md",
+  "docs/production-hardening-runbook.md",
   "docs/platform-api.md",
   "docs/registry.md",
   "docs/tokenhost-demo.md",
@@ -23,6 +24,8 @@ const requiredFiles = [
   "script/DeployFocPlatformRegistry.s.sol",
   "scripts/generate-registry-artifacts.mjs",
   "scripts/generate-tokenhost-wrapper-artifacts.mjs",
+  "scripts/run-ops-smoke.mjs",
+  "scripts/validate-ops-config.mjs",
   "src/admin/reconciliation.mjs",
   "src/api/platform-admin-api.mjs",
   "src/api/platform-api.mjs",
@@ -38,6 +41,7 @@ const requiredFiles = [
   "test/dev-upload-spine.test.mjs",
   "test/platform-admin-api.test.mjs",
   "test/platform-api.test.mjs",
+  "test/ops-hardening.test.mjs",
   "test/registry-read-model.test.mjs",
   "test/tokenhost-demo.test.mjs",
   "test/workspace.test.mjs",
@@ -74,10 +78,13 @@ if (!/^broadcast\/$/m.test(gitignore)) {
 const pkg = JSON.parse(await readFile("package.json", "utf8"));
 for (const script of [
   "lint",
+  "ops:smoke",
+  "ops:validate",
   "test",
   "test:admin",
   "test:api",
   "test:node",
+  "test:ops",
   "test:contracts",
   "test:spine",
   "test:tokenhost",
@@ -108,7 +115,26 @@ if (
   throw new Error("Calibration evidence must record the Worker as read-only and secret-free");
 }
 
+const productionRunbook = await readFile("docs/production-hardening-runbook.md", "utf8");
+for (const phrase of [
+  "Threat Model",
+  "Secret Management",
+  "Rate Limits And Timeouts",
+  "Reconciliation Runbook",
+  "Remaining Production Gates",
+  "productionReady",
+]) {
+  if (!productionRunbook.includes(phrase)) {
+    throw new Error(`production hardening runbook is missing: ${phrase}`);
+  }
+}
+
 const ci = await readFile(".github/workflows/ci.yml", "utf8");
+for (const command of ["pnpm ops:validate", "pnpm ops:smoke", "pnpm worker:dry-run"]) {
+  if (!ci.includes(command)) {
+    throw new Error(`CI must run ${command}`);
+  }
+}
 if (!ci.includes("pnpm build:artifacts") || !ci.includes("git diff --exit-code")) {
   throw new Error("CI must regenerate and compare committed registry artifacts");
 }
