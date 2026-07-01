@@ -556,6 +556,27 @@ test("local hosted coordinator resumes Uploading objects without replaying start
   assert.equal(uploadCalls.length, 1);
 });
 
+test("local hosted coordinator resumes raw numeric Uploading status without replaying startUpload", async () => {
+  const registry = createRegistry();
+  registry.status = 2;
+  const uploadCalls = [];
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+
+  const result = await coordinator.executeUpload({
+    objectId: 1n,
+    request: requestFixture({ size: 4n }),
+    bytes: new Uint8Array([1, 2, 3, 4]),
+  });
+
+  assert.equal(result.status, "Committed");
+  assert.equal(registry.startCalls.length, 0);
+  assert.equal(registry.finalizeCalls.length, 1);
+  assert.equal(uploadCalls.length, 1);
+});
+
 test("local hosted coordinator resumes if startUpload loses an Uploading race", async () => {
   const registry = createRegistry();
   const uploadCalls = [];
@@ -744,6 +765,36 @@ test("local hosted coordinator does not failUpload an already terminal object", 
   assert.equal(registry.startCalls.length, 0);
   assert.equal(registry.finalizeCalls.length, 0);
   assert.equal(registry.failCalls.length, 0);
+});
+
+test("local hosted coordinator treats raw numeric terminal status as terminal", async () => {
+  const registry = createRegistry();
+  registry.status = 3;
+  const uploadCalls = [];
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request: requestFixture({ size: 4n }),
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "terminal_upload");
+      assert.equal(error.details.status, "Committed");
+      return true;
+    },
+  );
+
+  assert.equal(registry.startCalls.length, 0);
+  assert.equal(registry.finalizeCalls.length, 0);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 0);
 });
 
 function createCoordinator({

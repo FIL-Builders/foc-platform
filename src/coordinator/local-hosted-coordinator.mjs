@@ -22,6 +22,18 @@ export class HostedCoordinatorError extends Error {
   }
 }
 
+const UPLOAD_STATUS_LABELS = Object.freeze([
+  "None",
+  "Requested",
+  "Uploading",
+  "Committed",
+  "Partial",
+  "Failed",
+  "Cancelled",
+  "Expired",
+  "Deleted",
+]);
+
 export function createLocalHostedCoordinator({
   config,
   registry,
@@ -243,7 +255,30 @@ async function readUploadObject(registry, prepared) {
     objectId: prepared.objectId,
     account: prepared.account,
   });
-  return current?.object ?? current?.upload ?? current;
+  return normalizeUploadObjectStatus(current?.object ?? current?.upload ?? current);
+}
+
+function normalizeUploadObjectStatus(object) {
+  if (!object || typeof object !== "object" || object.status === undefined) return object;
+  const status = normalizeUploadStatus(object.status);
+  if (status === object.status) return object;
+  return { ...object, status };
+}
+
+function normalizeUploadStatus(status) {
+  if (typeof status === "number" && Number.isInteger(status)) {
+    return UPLOAD_STATUS_LABELS[status] ?? status;
+  }
+  if (typeof status === "bigint") {
+    if (status >= 0n && status < BigInt(UPLOAD_STATUS_LABELS.length)) {
+      return UPLOAD_STATUS_LABELS[Number(status)] ?? status;
+    }
+  }
+  if (typeof status === "string" && /^[0-9]+$/.test(status)) {
+    const numericStatus = Number(status);
+    if (Number.isSafeInteger(numericStatus)) return UPLOAD_STATUS_LABELS[numericStatus] ?? status;
+  }
+  return status;
 }
 
 async function failPreparedUpload({ prepared, registry, sessionKey, config, error }) {

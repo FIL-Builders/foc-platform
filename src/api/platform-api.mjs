@@ -100,7 +100,12 @@ export function normalizeContentHashAlgorithm(value) {
       { algorithm: normalized },
     );
   }
-  return normalized;
+  throw new PlatformApiError(
+    400,
+    "unsupported_content_hash_algorithm",
+    "contentHashAlgorithm is not durable for contract-backed upload requests yet",
+    { algorithm: normalized },
+  );
 }
 
 function normalizeContentHash(value, algorithm) {

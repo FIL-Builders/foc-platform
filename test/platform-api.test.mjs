@@ -49,7 +49,7 @@ test("POST /storage/upload creates an opaque-account upload request", async () =
   assert.equal(registry.createCalls[0].request.user, WALLET);
 });
 
-test("POST /storage/upload preserves bytes32 content hash algorithms", async () => {
+test("POST /storage/upload rejects nondurable bytes32 content hash algorithms", async () => {
   const registry = createMemoryRegistry();
   const api = createPlatformApi({ registry });
   const contentHash = hex32("ab");
@@ -63,9 +63,11 @@ test("POST /storage/upload preserves bytes32 content hash algorithms", async () 
     },
   });
 
-  assert.equal(response.status, 201);
-  assert.equal(registry.createCalls[0].request.contentHash, contentHash);
-  assert.equal(registry.createCalls[0].request.contentHashAlgorithm, "keccak256");
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error.code, "unsupported_content_hash_algorithm");
+  assert.equal(response.body.error.algorithm, "keccak256");
+  assert.match(response.body.error.message, /not durable/);
+  assert.equal(registry.createCalls.length, 0);
 });
 
 test("duplicate idempotency returns a stable 409 without creating a second object", async () => {
@@ -145,7 +147,7 @@ test("create upload rejects malformed boundary inputs before adapter work", asyn
   assert.equal(unsupportedHashAlgorithm.status, 400);
   assert.equal(unsupportedHashAlgorithm.body.error.code, "unsupported_content_hash_algorithm");
   assert.equal(opaqueHashWithAlgorithm.status, 400);
-  assert.equal(opaqueHashWithAlgorithm.body.error.code, "invalid_content_hash");
+  assert.equal(opaqueHashWithAlgorithm.body.error.code, "unsupported_content_hash_algorithm");
   assert.equal(registry.createCalls.length, 0);
 });
 
