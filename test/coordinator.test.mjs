@@ -198,6 +198,19 @@ test("upload bytes validate declared size and optional keccak content commitment
       }),
     /upload bytes do not match declared content commitment/,
   );
+  assert.throws(
+    () =>
+      validateUploadBytes({
+        bytes,
+        declaredSize: 4n,
+        contentHash,
+      }),
+    (error) => {
+      assert.equal(error.name, "CoordinatorReceiptError");
+      assert.equal(error.code, "missing_content_hash_algorithm");
+      return true;
+    },
+  );
 });
 
 test("upload bytes validate identity-bytes32 content commitments", () => {
@@ -284,6 +297,34 @@ test("local hosted coordinator resumes Uploading objects without replaying start
   assert.equal(result.status, "Committed");
   assert.equal(registry.startCalls.length, 0);
   assert.equal(registry.finalizeCalls.length, 1);
+  assert.equal(uploadCalls.length, 1);
+});
+
+test("local hosted coordinator resumes if startUpload loses an Uploading race", async () => {
+  const registry = createRegistry();
+  const uploadCalls = [];
+  const startRaceError = new Error("already uploading");
+  startRaceError.code = "invalid_transition";
+  registry.startUpload = async (args) => {
+    registry.startCalls.push(args);
+    registry.status = "Uploading";
+    throw startRaceError;
+  };
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+
+  const result = await coordinator.executeUpload({
+    objectId: 1n,
+    request: requestFixture({ size: 4n }),
+    bytes: new Uint8Array([1, 2, 3, 4]),
+  });
+
+  assert.equal(result.status, "Committed");
+  assert.equal(registry.startCalls.length, 1);
+  assert.equal(registry.finalizeCalls.length, 1);
+  assert.equal(registry.failCalls.length, 0);
   assert.equal(uploadCalls.length, 1);
 });
 

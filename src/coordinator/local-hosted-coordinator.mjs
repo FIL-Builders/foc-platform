@@ -118,11 +118,7 @@ function prepareInput(input = {}, config, sessionKey, clock) {
 }
 
 async function executePreparedUpload({ prepared, registry, focClient, sessionKey, config }) {
-  const current = await maybeCall(registry.readUploadStatus, registry, {
-    objectId: prepared.objectId,
-    account: prepared.account,
-  });
-  const currentObject = current?.object ?? current?.upload ?? current;
+  const currentObject = await readUploadObject(registry, prepared);
   if (currentObject?.status && TERMINAL_UPLOAD_STATUSES.includes(currentObject.status)) {
     throw new HostedCoordinatorError("terminal_upload", "terminal upload cannot accept bytes", {
       objectId: prepared.objectId,
@@ -131,11 +127,7 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
   }
 
   if (currentObject?.status !== "Uploading") {
-    await maybeCall(registry.startUpload, registry, {
-      objectId: prepared.objectId,
-      account: prepared.account,
-      sessionKey: publicSessionKey(sessionKey),
-    });
+    await startOrResumeUploading({ prepared, registry, sessionKey });
   }
 
   const synapseResult = await focClient.upload({
@@ -168,6 +160,34 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
       boundary: "local hosted coordinator with injected FOC adapter",
     },
   });
+}
+
+async function startOrResumeUploading({ prepared, registry, sessionKey }) {
+  try {
+    await maybeCall(registry.startUpload, registry, {
+      objectId: prepared.objectId,
+      account: prepared.account,
+      sessionKey: publicSessionKey(sessionKey),
+    });
+  } catch (error) {
+    const latestObject = await readUploadObject(registry, prepared);
+    if (latestObject?.status === "Uploading") return;
+    if (latestObject?.status && TERMINAL_UPLOAD_STATUSES.includes(latestObject.status)) {
+      throw new HostedCoordinatorError("terminal_upload", "terminal upload cannot accept bytes", {
+        objectId: prepared.objectId,
+        status: latestObject.status,
+      });
+    }
+    throw error;
+  }
+}
+
+async function readUploadObject(registry, prepared) {
+  const current = await maybeCall(registry.readUploadStatus, registry, {
+    objectId: prepared.objectId,
+    account: prepared.account,
+  });
+  return current?.object ?? current?.upload ?? current;
 }
 
 async function failPreparedUpload({ prepared, registry, sessionKey, config, error }) {

@@ -41,6 +41,13 @@ export function validateUploadBytes({
       actualSize: size.toString(),
     });
   }
+  if (contentHash && !contentHashAlgorithm) {
+    throw new CoordinatorReceiptError(
+      "missing_content_hash_algorithm",
+      "content hash algorithm is required when content hash is declared",
+      { contentHash: String(contentHash).toLowerCase() },
+    );
+  }
   if (contentHash && contentHashAlgorithm) {
     const actual = hashBytes(data, contentHashAlgorithm);
     if (actual !== contentHash.toLowerCase()) {
