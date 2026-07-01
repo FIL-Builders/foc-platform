@@ -308,6 +308,57 @@ test("Token Host generated upload adapter resumes duplicate requests before subm
   assert.equal(registry.objects.size, 1);
 });
 
+test("Token Host generated upload adapter rejects mismatched duplicate retries", async () => {
+  const registry = createMemoryRegistry();
+  const submitUploadBytes = registry.submitUploadBytes.bind(registry);
+  const api = createPlatformApi({ registry });
+  const bytes = new Uint8Array([5, 6, 7, 8]);
+  let submitAttempts = 0;
+
+  registry.submitUploadBytes = async (args) => {
+    submitAttempts += 1;
+    if (submitAttempts === 1) {
+      throw new PlatformApiError(
+        503,
+        "transient_tokenhost_submit_failure",
+        "transient byte submit failure",
+      );
+    }
+    return submitUploadBytes(args);
+  };
+
+  const first = {
+    method: "POST",
+    path: "/storage/tokenhost/upload",
+    headers: {
+      ...platformHeaders("tokenhost-user"),
+      "content-type": "image/png",
+      "x-tokenhost-idempotency-key": "tokenhost-mismatch-key",
+      "x-tokenhost-upload-filename": "retry.png",
+      "x-tokenhost-upload-size": String(bytes.byteLength),
+    },
+    body: bytes,
+  };
+  const mismatched = {
+    ...first,
+    headers: {
+      ...first.headers,
+      "x-tokenhost-upload-filename": "different.png",
+    },
+    body: new Uint8Array([9, 10, 11, 12]),
+  };
+  const failed = await api.handle(first);
+  const rejected = await api.handle(mismatched);
+
+  assert.equal(failed.status, 503);
+  assert.equal(rejected.status, 409);
+  assert.equal(rejected.body.error.code, "duplicate_idempotency_mismatch");
+  assert.equal(rejected.body.error.field, "contentHash");
+  assert.equal(submitAttempts, 1);
+  assert.equal(registry.createCalls.length, 2);
+  assert.equal(registry.objects.size, 1);
+});
+
 test("Token Host generated upload adapter replays completed duplicate requests", async () => {
   const registry = createMemoryRegistry();
   const submitUploadBytes = registry.submitUploadBytes.bind(registry);

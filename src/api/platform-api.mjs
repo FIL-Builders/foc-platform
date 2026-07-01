@@ -443,6 +443,7 @@ async function handleTokenHostUpload({ registry, account, auth, body, headers })
     });
     const existingObject =
       existingUpload.object ?? existingUpload.reads?.object ?? existingUpload.upload ?? existingUpload;
+    assertDuplicateTokenHostRequestMatches(existingObject, tokenHostUpload.request);
     if (isTerminalUploadStatus(existingObject.status)) {
       return {
         ...existingUpload,
@@ -492,6 +493,39 @@ function duplicateUploadRequestObjectId(error) {
 
 function isTerminalUploadStatus(status) {
   return ["Committed", "Partial", "Failed", "Cancelled", "Expired", "Deleted"].includes(status);
+}
+
+function assertDuplicateTokenHostRequestMatches(object, request) {
+  const checks = [
+    ["size", object.size, request.size],
+    ["contentHash", lowerOptional(object.contentHash), lowerOptional(request.contentHash)],
+    ["metadataHash", lowerOptional(object.metadataHash), lowerOptional(request.metadataHash)],
+    ["requestedCopies", Number(object.requestedCopies), Number(request.requestedCopies)],
+    ["withCDN", Boolean(object.withCDN), Boolean(request.withCDN)],
+    ["maxCost", decimalOptional(object.maxCost), decimalOptional(request.maxCost)],
+  ];
+
+  for (const [field, existing, requested] of checks) {
+    if (existing !== requested) {
+      throw new PlatformApiError(
+        409,
+        "duplicate_idempotency_mismatch",
+        "idempotency key already created a different Token Host upload",
+        {
+          objectId: decimal(object.objectId),
+          field,
+        },
+      );
+    }
+  }
+}
+
+function lowerOptional(value) {
+  return value === undefined || value === null ? value : String(value).toLowerCase();
+}
+
+function decimalOptional(value) {
+  return value === undefined || value === null || value === "" ? undefined : decimal(value);
 }
 
 function normalizeTokenHostUploadRequest(body, headers, account) {
