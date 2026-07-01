@@ -4,6 +4,7 @@ test = "test/contracts"
 out = "out"
 libs = ["lib"]
 solc = "0.8.30"
+evm_version = "paris"
 optimizer = true
 optimizer_runs = 200
 bytecode_hash = "none"

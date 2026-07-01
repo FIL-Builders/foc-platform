@@ -37,18 +37,34 @@ Do not commit deployed addresses from local runs. Set
 ## Calibration Deploy
 
 Calibration deployment uses the same script with
-`FILECOIN_CALIBRATION_RPC_URL` and a funded platform root key:
+`FILECOIN_CALIBRATION_RPC_URL` and a funded platform root key. Keep the
+private key in a local shell environment and redact it from commands, PRs,
+issues, logs, and committed files.
 
 ```sh
-PLATFORM_ROOT_PRIVATE_KEY=0x... forge script script/DeployFocPlatformRegistry.s.sol:DeployFocPlatformRegistryScript \
+export PLATFORM_ROOT_PRIVATE_KEY=0xYOUR_REDACTED_PRIVATE_KEY
+
+forge script script/DeployFocPlatformRegistry.s.sol:DeployFocPlatformRegistryScript \
   --rpc-url "$FILECOIN_CALIBRATION_RPC_URL" \
   --broadcast \
-  --verify
+  --gas-estimate-multiplier 10000
 ```
+
+The registry is compiled with `evm_version = "paris"` in `foundry.toml`.
+The unpinned default solc target produced Calibration opcode-compatibility
+risk, and lower Foundry gas estimates failed or reverted. On the 2026-06-30 HST
+/ 2026-07-01 UTC partial Phase 0 run, `--gas-estimate-multiplier 10000`
+produced a successful registry deployment.
 
 The repo does not contain funded credentials. Any PR claiming Calibration deploy
 success must include the deployed address, chain id, transaction hash, block
 number, artifact hash, and the exact command used with secrets redacted.
+
+Current partial Phase 0 registry deployment evidence is recorded in
+[`docs/phase0-calibration-report.md`](./phase0-calibration-report.md). It proves
+Calibration registry deployment and runtime bytecode verification only. It does
+not prove FOC funding/approval, Synapse upload, session-key authorization,
+dataset attribution, receipt finalization, or expiry/revocation behavior.
 
 ## Read Model
 
