@@ -78,12 +78,13 @@ export function createLocalHostedCoordinator({
       idempotencyStore.set(key, { state: "running" });
       try {
         const result = cached.pendingFinalize
-          ? await finalizePreparedReceipt({
+          ? await finalizePendingReceipt({
               prepared,
               registry,
               receipt: cached.pendingFinalize.receipt,
               sessionKey,
               config,
+              clock,
             })
           : await executePreparedUpload({
               prepared,
@@ -299,6 +300,22 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
   return finalizePreparedReceipt({ prepared, registry, receipt, sessionKey, config });
 }
 
+async function finalizePendingReceipt({ prepared, registry, receipt, sessionKey, config, clock }) {
+  let currentObject;
+  try {
+    currentObject = await readUploadObject(registry, prepared);
+  } catch (error) {
+    throw createFinalizeUploadFailedError({
+      prepared,
+      error,
+      receipt,
+      message: "registry read failed before pending finalization retry; retry without failing upload",
+    });
+  }
+  assertUploadRequestNotExpired({ prepared, object: currentObject, now: clock() });
+  return finalizePreparedReceipt({ prepared, registry, receipt, sessionKey, config });
+}
+
 async function finalizePreparedReceipt({ prepared, registry, receipt, sessionKey, config }) {
   let finalizeResult;
   try {
@@ -317,24 +334,33 @@ async function finalizePreparedReceipt({ prepared, registry, receipt, sessionKey
       error,
     });
     if (recovered) return recovered;
-    const finalizeError = new HostedCoordinatorError(
-      "finalize_upload_failed",
-      "registry finalization failed after FOC upload; retry without failing upload",
-      {
-        objectId: String(prepared.objectId),
-        sourceCode: error?.code,
-        sourceMessage: error?.message,
-      },
+    throw createFinalizeUploadFailedError({
+      prepared,
       error,
-    );
-    Object.defineProperty(finalizeError, FINALIZE_RECEIPT, {
-      value: receipt,
-      configurable: true,
+      receipt,
+      message: "registry finalization failed after FOC upload; retry without failing upload",
     });
-    throw finalizeError;
   }
 
   return Object.freeze(uploadResult({ prepared, receipt, registryResult: finalizeResult, config }));
+}
+
+function createFinalizeUploadFailedError({ prepared, error, receipt, message }) {
+  const finalizeError = new HostedCoordinatorError(
+    "finalize_upload_failed",
+    message,
+    {
+      objectId: String(prepared.objectId),
+      sourceCode: error?.code,
+      sourceMessage: error?.message,
+    },
+    error,
+  );
+  Object.defineProperty(finalizeError, FINALIZE_RECEIPT, {
+    value: receipt,
+    configurable: true,
+  });
+  return finalizeError;
 }
 
 function validateRegistryRequest(prepared, object) {
