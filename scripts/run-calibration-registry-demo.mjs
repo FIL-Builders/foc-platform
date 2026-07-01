@@ -191,10 +191,14 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
     }),
   ]);
 
+  const registryTxHashes = write
+    ? mergeRegistryTxHashes(await readExistingRegistryTxHashes(config.evidencePath), txHashes)
+    : txHashes;
+
   const evidence = buildEvidence({
     config,
     objectId,
-    txHashes,
+    txHashes: registryTxHashes,
     finalObject,
     usage,
     copyReceipts,
@@ -215,7 +219,7 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
       accountId: config.accountId,
       status: evidence.demo.status,
       pieceCid: config.pieceCid,
-      txHashes,
+      txHashes: registryTxHashes,
     },
   };
 }
@@ -371,6 +375,23 @@ export function shouldRefreshDemoCoordinatorPolicy(policy = {}) {
     sessionKeyExpiresAt !== 0n ||
     permissionsHash !== ZERO_BYTES32
   );
+}
+
+export function mergeRegistryTxHashes(existing = {}, current = {}) {
+  return {
+    ...compactStringRecord(existing),
+    ...compactStringRecord(current),
+  };
+}
+
+async function readExistingRegistryTxHashes(evidencePath) {
+  try {
+    const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
+    return evidence?.demo?.registryTxHashes ?? {};
+  } catch (error) {
+    if (error?.code === "ENOENT") return {};
+    throw error;
+  }
 }
 
 async function assertOwner({ publicClient, config }) {
@@ -531,6 +552,15 @@ function optionalEnvDefault(env, key, fallback) {
   const value = env[key];
   if (value === undefined || value === null || String(value).trim() === "") return fallback;
   return String(value).trim();
+}
+
+function compactStringRecord(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, item]) => [key, String(item ?? "").trim()])
+      .filter(([, item]) => item !== ""),
+  );
 }
 
 function stableJson(value) {

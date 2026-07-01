@@ -190,3 +190,27 @@ test("Calibration registry runner treats blank demo ID env vars as unset", async
     },
   );
 });
+
+test("Calibration registry runner preserves prior transaction hashes on rerun", async () => {
+  const runner = await import(`../scripts/run-calibration-registry-demo.mjs?tx=${Date.now()}`);
+
+  assert.deepEqual(
+    runner.mergeRegistryTxHashes(
+      {
+        requestUpload: `0x${"11".repeat(32)}`,
+        startUpload: `0x${"22".repeat(32)}`,
+        finalizeUpload: `0x${"33".repeat(32)}`,
+      },
+      {
+        recordDataset: `0x${"44".repeat(32)}`,
+        finalizeUpload: `0x${"55".repeat(32)}`,
+      },
+    ),
+    {
+      requestUpload: `0x${"11".repeat(32)}`,
+      startUpload: `0x${"22".repeat(32)}`,
+      recordDataset: `0x${"44".repeat(32)}`,
+      finalizeUpload: `0x${"55".repeat(32)}`,
+    },
+  );
+});
