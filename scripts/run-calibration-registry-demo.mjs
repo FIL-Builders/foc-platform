@@ -224,28 +224,36 @@ async function loadConfig(env) {
   const privateKey = normalizePrivateKey(env.PRIVATE_KEY ?? env.PLATFORM_ROOT_PRIVATE_KEY);
   const account = privateKeyToAccount(privateKey);
   const registryAddress = normalizeAddress(
-    env.FOC_PLATFORM_REGISTRY_ADDRESS ?? DEFAULT_REGISTRY_ADDRESS,
+    optionalEnvDefault(env, "FOC_PLATFORM_REGISTRY_ADDRESS", DEFAULT_REGISTRY_ADDRESS),
     "FOC_PLATFORM_REGISTRY_ADDRESS",
   );
-  const payloadPath = env.FOC_PLATFORM_DEMO_PAYLOAD_PATH ?? "/tmp/foc-platform-calibration-demo.bin";
+  const payloadPath = optionalEnvDefault(
+    env,
+    "FOC_PLATFORM_DEMO_PAYLOAD_PATH",
+    "/tmp/foc-platform-calibration-demo.bin",
+  );
   const payload = await readFile(payloadPath);
   const pieceCid = required(env.FOC_PLATFORM_DEMO_PIECE_CID, "FOC_PLATFORM_DEMO_PIECE_CID");
   const retrievalUrl = required(
     env.FOC_PLATFORM_DEMO_RETRIEVAL_URL,
     "FOC_PLATFORM_DEMO_RETRIEVAL_URL",
   );
-  const providerId = env.FOC_PLATFORM_DEMO_PROVIDER_ID ?? "4";
-  const datasetId = env.FOC_PLATFORM_DEMO_DATASET_ID ?? "12524";
-  const pieceId = env.FOC_PLATFORM_DEMO_PIECE_ID ?? "34";
+  const { providerId, datasetId, pieceId } = normalizeDemoIds(env);
   const { uploadTxHash, addPieceTxHash } = normalizeDemoUploadTxHash(env);
   const accountId = normalizeBytes32(
-    env.FOC_PLATFORM_DEMO_ACCOUNT_ID ??
+    optionalEnvDefault(
+      env,
+      "FOC_PLATFORM_DEMO_ACCOUNT_ID",
       keccak256(stringToHex("foc-platform:calibration-demo:issue-15:account")),
+    ),
     "FOC_PLATFORM_DEMO_ACCOUNT_ID",
   );
   const idempotencyKey = normalizeBytes32(
-    env.FOC_PLATFORM_DEMO_IDEMPOTENCY_KEY ??
+    optionalEnvDefault(
+      env,
+      "FOC_PLATFORM_DEMO_IDEMPOTENCY_KEY",
       keccak256(stringToHex(`foc-platform:calibration-demo:issue-15:${pieceCid}:${pieceId}`)),
+    ),
     "FOC_PLATFORM_DEMO_IDEMPOTENCY_KEY",
   );
   const metadata = {
@@ -259,8 +267,10 @@ async function loadConfig(env) {
   const contentHash = keccak256(payload);
   const metadataHash = keccak256(stringToHex(stableJson(metadata)));
   const size = BigInt(payload.byteLength);
-  const actualCost = BigInt(env.FOC_PLATFORM_DEMO_ACTUAL_COST ?? "0");
-  const maxCost = BigInt(env.FOC_PLATFORM_DEMO_MAX_COST ?? "1000000000000000000");
+  const actualCost = BigInt(optionalEnvDefault(env, "FOC_PLATFORM_DEMO_ACTUAL_COST", "0"));
+  const maxCost = BigInt(
+    optionalEnvDefault(env, "FOC_PLATFORM_DEMO_MAX_COST", "1000000000000000000"),
+  );
   const receiptHash = keccak256(
     stringToHex(
       stableJson({
@@ -278,9 +288,9 @@ async function loadConfig(env) {
   return {
     account,
     registryAddress,
-    rpcUrl: env.FILECOIN_CALIBRATION_RPC_URL ?? DEFAULT_RPC_URL,
-    evidencePath: env.FOC_PLATFORM_DEMO_EVIDENCE_PATH ?? DEFAULT_EVIDENCE_PATH,
-    gas: BigInt(env.FOC_PLATFORM_DEMO_GAS_LIMIT ?? DEFAULT_GAS_LIMIT.toString()),
+    rpcUrl: optionalEnvDefault(env, "FILECOIN_CALIBRATION_RPC_URL", DEFAULT_RPC_URL),
+    evidencePath: optionalEnvDefault(env, "FOC_PLATFORM_DEMO_EVIDENCE_PATH", DEFAULT_EVIDENCE_PATH),
+    gas: BigInt(optionalEnvDefault(env, "FOC_PLATFORM_DEMO_GAS_LIMIT", DEFAULT_GAS_LIMIT.toString())),
     payloadPath,
     pieceCid,
     retrievalUrl,
@@ -339,6 +349,14 @@ export function normalizeDemoUploadTxHash(env = {}) {
   return {
     uploadTxHash: rawUploadTxHash ? addPieceTxHash : null,
     addPieceTxHash,
+  };
+}
+
+export function normalizeDemoIds(env = {}) {
+  return {
+    providerId: optionalEnvDefault(env, "FOC_PLATFORM_DEMO_PROVIDER_ID", "4"),
+    datasetId: optionalEnvDefault(env, "FOC_PLATFORM_DEMO_DATASET_ID", "12524"),
+    pieceId: optionalEnvDefault(env, "FOC_PLATFORM_DEMO_PIECE_ID", "34"),
   };
 }
 
@@ -506,6 +524,12 @@ function required(value, label) {
   if (value === undefined || value === null || String(value).trim() === "") {
     throw new Error(`${label} is required`);
   }
+  return String(value).trim();
+}
+
+function optionalEnvDefault(env, key, fallback) {
+  const value = env[key];
+  if (value === undefined || value === null || String(value).trim() === "") return fallback;
   return String(value).trim();
 }
 

@@ -161,3 +161,32 @@ test("Calibration registry runner refreshes expired coordinator policies", async
     false,
   );
 });
+
+test("Calibration registry runner treats blank demo ID env vars as unset", async () => {
+  const runner = await import(`../scripts/run-calibration-registry-demo.mjs?ids=${Date.now()}`);
+
+  assert.deepEqual(
+    runner.normalizeDemoIds({
+      FOC_PLATFORM_DEMO_PROVIDER_ID: " ",
+      FOC_PLATFORM_DEMO_DATASET_ID: "",
+      FOC_PLATFORM_DEMO_PIECE_ID: undefined,
+    }),
+    {
+      providerId: "4",
+      datasetId: "12524",
+      pieceId: "34",
+    },
+  );
+  assert.deepEqual(
+    runner.normalizeDemoIds({
+      FOC_PLATFORM_DEMO_PROVIDER_ID: " 5 ",
+      FOC_PLATFORM_DEMO_DATASET_ID: " 12525 ",
+      FOC_PLATFORM_DEMO_PIECE_ID: " 35 ",
+    }),
+    {
+      providerId: "5",
+      datasetId: "12525",
+      pieceId: "35",
+    },
+  );
+});
