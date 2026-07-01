@@ -1,3 +1,5 @@
+import { keccak256 } from "viem";
+
 export function createTokenHostDemoClient({
   api,
   userId = "tokenhost-demo-user",
@@ -13,14 +15,19 @@ export function createTokenHostDemoClient({
     async uploadFile(input = {}) {
       const bytes = input.bytes ?? new Uint8Array(input.size ?? 1);
       const size = input.size ?? uploadBodySize(bytes);
+      const contentType = input.contentType ?? "application/octet-stream";
+      const fileName = input.fileName ?? "upload.bin";
       return tokenHostStateFromResponse(
         await api.handle({
           method: "POST",
           path: "/storage/tokenhost/upload",
           headers: {
             ...headers,
-            "content-type": input.contentType ?? "application/octet-stream",
-            "x-tokenhost-upload-filename": input.fileName ?? "upload.bin",
+            "content-type": contentType,
+            "x-tokenhost-idempotency-key":
+              input.idempotencyKey ??
+              tokenHostUploadIdempotencyKey({ fileName, contentType, size, body: bytes }),
+            "x-tokenhost-upload-filename": fileName,
             "x-tokenhost-upload-size": String(size),
           },
           body: bytes,
@@ -204,6 +211,30 @@ function uploadLinks(objectId) {
     object: `/storage/objects/${objectId}`,
     usage: "/usage",
   };
+}
+
+function tokenHostUploadIdempotencyKey({ fileName, contentType, size, body }) {
+  return `tokenhost-upload:${fileName}:${contentType}:${String(size)}:${tokenHostUploadBodyHash(body)}`;
+}
+
+function tokenHostUploadBodyHash(body) {
+  const bytes = tokenHostUploadBodyBytes(body);
+  return bytes ? keccak256(bytes) : `size:${String(uploadBodySize(body))}`;
+}
+
+function tokenHostUploadBodyBytes(body) {
+  if (typeof body === "string") return new TextEncoder().encode(body);
+  if (body instanceof ArrayBuffer) return Uint8Array.from(new Uint8Array(body));
+  if (ArrayBuffer.isView(body)) {
+    return Uint8Array.from(new Uint8Array(body.buffer, body.byteOffset, body.byteLength));
+  }
+  if (Array.isArray(body)) {
+    if (!body.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)) {
+      return undefined;
+    }
+    return Uint8Array.from(body);
+  }
+  return undefined;
 }
 
 function uploadBodySize(body) {

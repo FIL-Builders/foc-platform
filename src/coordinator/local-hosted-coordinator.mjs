@@ -56,14 +56,17 @@ export function createLocalHostedCoordinator({
     config: publicCoordinatorConfig(config),
     async executeUpload(input) {
       const preflightIdempotency = preflightIdempotencyOperation(input);
+      let preflightCached;
       if (preflightIdempotency) {
-        const cached = cachedIdempotencyResult(
+        preflightCached = cachedIdempotencyResult(
           idempotencyStore.get(preflightIdempotency.key),
           preflightIdempotency,
         );
-        if (cached.hit) return cached.result;
+        if (preflightCached.hit) return preflightCached.result;
       }
-      const prepared = prepareInput(input, config, sessionKey, clock);
+      const prepared = prepareInput(input, config, sessionKey, clock, {
+        requireBytes: !preflightCached?.pendingFinalize,
+      });
       const key =
         preflightIdempotency?.key ??
         coordinatorIdempotencyOperationKey({
@@ -72,7 +75,9 @@ export function createLocalHostedCoordinator({
           bytes: prepared.bytes,
           account: prepared.account,
         });
-      const cached = cachedIdempotencyResult(idempotencyStore.get(key), prepared);
+      const cached = preflightCached?.pendingFinalize
+        ? preflightCached
+        : cachedIdempotencyResult(idempotencyStore.get(key), prepared);
       if (cached.hit) return cached.result;
       if (!cached.pendingFinalize) {
         assertCoordinatorSessionKey(config, sessionKey, clock);
@@ -136,22 +141,25 @@ export function createLocalHostedCoordinator({
   });
 }
 
-function prepareInput(input = {}, config, sessionKey, clock) {
+function prepareInput(input = {}, config, sessionKey, clock, { requireBytes = true } = {}) {
   const objectId = required(input.objectId, "objectId");
   const request = required(input.request, "request");
-  const contentCommitment = resolveContentCommitment(input, request);
-  const bytes = validateUploadBytes({
-    bytes: input.bytes,
-    declaredSize: request.size,
-    contentHash: contentCommitment.contentHash,
-    contentHashAlgorithm: contentCommitment.contentHashAlgorithm,
-  });
-
-  if (config.maxBytes !== undefined && BigInt(bytes.byteLength) > config.maxBytes) {
-    throw new HostedCoordinatorError("max_bytes_exceeded", "upload exceeds coordinator max bytes", {
-      maxBytes: config.maxBytes.toString(),
-      actualBytes: String(bytes.byteLength),
+  let bytes;
+  if (requireBytes) {
+    const contentCommitment = resolveContentCommitment(input, request);
+    bytes = validateUploadBytes({
+      bytes: input.bytes,
+      declaredSize: request.size,
+      contentHash: contentCommitment.contentHash,
+      contentHashAlgorithm: contentCommitment.contentHashAlgorithm,
     });
+
+    if (config.maxBytes !== undefined && BigInt(bytes.byteLength) > config.maxBytes) {
+      throw new HostedCoordinatorError("max_bytes_exceeded", "upload exceeds coordinator max bytes", {
+        maxBytes: config.maxBytes.toString(),
+        actualBytes: String(bytes.byteLength),
+      });
+    }
   }
 
   return {
