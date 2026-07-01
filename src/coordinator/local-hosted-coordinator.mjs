@@ -74,6 +74,9 @@ export function createLocalHostedCoordinator({
         });
       const cached = cachedIdempotencyResult(idempotencyStore.get(key), prepared);
       if (cached.hit) return cached.result;
+      if (!cached.pendingFinalize) {
+        assertCoordinatorSessionKey(config, sessionKey, clock);
+      }
 
       idempotencyStore.set(key, { state: "running" });
       try {
@@ -97,6 +100,11 @@ export function createLocalHostedCoordinator({
         idempotencyStore.set(key, { state: "completed", result });
         return result;
       } catch (error) {
+        if (error instanceof CoordinatorConfigError) {
+          if (cached.pendingFinalize) idempotencyStore.set(key, cached.pendingFinalize);
+          else idempotencyStore.delete(key);
+          throw error;
+        }
         if (error?.code === "finalize_upload_failed" && error[FINALIZE_RECEIPT]) {
           idempotencyStore.set(key, { state: "pending_finalize", receipt: error[FINALIZE_RECEIPT] });
           throw error;
@@ -145,13 +153,6 @@ function prepareInput(input = {}, config, sessionKey, clock) {
       actualBytes: String(bytes.byteLength),
     });
   }
-  assertActiveSessionKey(sessionKey, {
-    now: clock(),
-    requiredPermissionsHash: config.permissionsHash ?? ZERO_BYTES32,
-    requiredSessionKeyAddress: config.sessionKeyAddress ?? config.coordinatorAddress,
-    requiredSessionKeyExpiresAt: config.sessionKeyExpiresAt,
-    requiredRootAddress: config.rootAddress,
-  });
 
   return {
     objectId,
@@ -161,6 +162,16 @@ function prepareInput(input = {}, config, sessionKey, clock) {
     account: input.account,
     metadata: input.metadata ?? {},
   };
+}
+
+function assertCoordinatorSessionKey(config, sessionKey, clock) {
+  assertActiveSessionKey(sessionKey, {
+    now: clock(),
+    requiredPermissionsHash: config.permissionsHash ?? ZERO_BYTES32,
+    requiredSessionKeyAddress: config.sessionKeyAddress ?? config.coordinatorAddress,
+    requiredSessionKeyExpiresAt: config.sessionKeyExpiresAt,
+    requiredRootAddress: config.rootAddress,
+  });
 }
 
 function resolveContentCommitment(input, request) {
@@ -326,6 +337,7 @@ async function finalizePendingReceipt({ prepared, registry, receipt, sessionKey,
     );
   }
   assertUploadRequestNotExpired({ prepared, object: currentObject, now: clock() });
+  assertCoordinatorSessionKey(config, sessionKey, clock);
   return finalizePreparedReceipt({ prepared, registry, receipt, sessionKey, config });
 }
 

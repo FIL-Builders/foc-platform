@@ -1595,9 +1595,11 @@ test("local hosted coordinator recovers matched pending finalization before retr
     failRecoveryRead = true;
     throw finalizeError;
   };
+  let now = 100n;
   const coordinator = createCoordinator({
     registry,
     focClient: createFocClient({ uploadCalls }),
+    clock: () => now,
   });
   const request = requestFixture({ size: 4n });
 
@@ -1616,6 +1618,7 @@ test("local hosted coordinator recovers matched pending finalization before retr
     },
   );
 
+  now = 1001n;
   const retry = await coordinator.executeUpload({
     objectId: 1n,
     request,
@@ -1627,6 +1630,61 @@ test("local hosted coordinator recovers matched pending finalization before retr
   assert.equal(registry.status, "Committed");
   assert.equal(readFailures, 1);
   assert.equal(registry.finalizeCalls.length, 1);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 1);
+});
+
+test("local hosted coordinator requires active session before retrying pending finalization", async () => {
+  const registry = createRegistry();
+  const uploadCalls = [];
+  const finalizeError = new Error("finalize tx timeout");
+  finalizeError.code = "finalize_timeout";
+  let finalizeAttempts = 0;
+  registry.finalizeUpload = async function finalizeWithTransientError() {
+    finalizeAttempts += 1;
+    throw finalizeError;
+  };
+  let now = 100n;
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+    clock: () => now,
+  });
+  const request = requestFixture({ size: 4n });
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request,
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "finalize_upload_failed");
+      assert.equal(error.details.sourceCode, "finalize_timeout");
+      return true;
+    },
+  );
+
+  now = 1001n;
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request,
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "CoordinatorConfigError");
+      assert.equal(error.code, "expired_session_key");
+      return true;
+    },
+  );
+
+  assert.equal(registry.status, "Uploading");
+  assert.equal(finalizeAttempts, 1);
+  assert.equal(registry.finalizeCalls.length, 0);
   assert.equal(registry.failCalls.length, 0);
   assert.equal(uploadCalls.length, 1);
 });
