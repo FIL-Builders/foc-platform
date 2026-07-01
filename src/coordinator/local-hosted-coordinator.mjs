@@ -249,7 +249,7 @@ async function recoverFinalizedUpload({ prepared, registry, receipt, config, err
   } catch {
     return undefined;
   }
-  if (latestObject?.status !== receipt.finalizationStatusLabel) return undefined;
+  if (!uploadObjectMatchesReceipt(latestObject, receipt)) return undefined;
   return Object.freeze(
     uploadResult({
       prepared,
@@ -263,6 +263,34 @@ async function recoverFinalizedUpload({ prepared, registry, receipt, config, err
       config,
     }),
   );
+}
+
+function uploadObjectMatchesReceipt(object, receipt) {
+  return (
+    object?.status === receipt.finalizationStatusLabel &&
+    equalBytes32(object.receiptHash, receipt.receiptHash) &&
+    equalBytes32(object.pieceCidHash, receipt.pieceCidHash) &&
+    equalUint(object.completedCopies, receipt.completedCopies) &&
+    equalUint(object.actualCost, receipt.actualCost)
+  );
+}
+
+function equalBytes32(actual, expected) {
+  if (actual === undefined || actual === null || expected === undefined || expected === null) {
+    return false;
+  }
+  return String(actual).toLowerCase() === String(expected).toLowerCase();
+}
+
+function equalUint(actual, expected) {
+  if (actual === undefined || actual === null || expected === undefined || expected === null) {
+    return false;
+  }
+  try {
+    return BigInt(actual) === BigInt(expected);
+  } catch {
+    return false;
+  }
 }
 
 async function startOrResumeUploading({ prepared, registry, sessionKey }) {

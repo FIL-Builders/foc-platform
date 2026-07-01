@@ -921,6 +921,49 @@ test("local hosted coordinator recovers ambiguous successful finalization withou
   assert.equal(uploadCalls.length, 1);
 });
 
+test("local hosted coordinator rejects ambiguous finalization with mismatched receipt", async () => {
+  const registry = createRegistry();
+  const uploadCalls = [];
+  const finalizeError = new Error("finalize confirmation timeout");
+  finalizeError.code = "finalize_timeout";
+  const finalizeUpload = registry.finalizeUpload;
+  registry.finalizeUpload = async function finalizeDifferentReceiptThenTimeout(args) {
+    await finalizeUpload.call(this, {
+      ...args,
+      receipt: {
+        ...args.receipt,
+        receiptHash: CONTENT_HASH,
+      },
+    });
+    throw finalizeError;
+  };
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+  const request = requestFixture({ size: 4n });
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request,
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "finalize_upload_failed");
+      assert.equal(error.details.sourceCode, "finalize_timeout");
+      return true;
+    },
+  );
+
+  assert.equal(registry.status, "Committed");
+  assert.equal(registry.finalizeCalls.length, 1);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 1);
+});
+
 test("local hosted coordinator does not failUpload an already terminal object", async () => {
   const registry = createRegistry();
   registry.status = "Committed";
@@ -1071,11 +1114,20 @@ function createRegistry() {
     startCalls: [],
     finalizeCalls: [],
     failCalls: [],
+    receipt: undefined,
     async readUploadStatus({ objectId }) {
       return {
         object: {
           objectId: String(objectId),
           status: this.status,
+          ...(this.receipt
+            ? {
+                receiptHash: this.receipt.receiptHash,
+                pieceCidHash: this.receipt.pieceCidHash,
+                completedCopies: this.receipt.completedCopies,
+                actualCost: this.receipt.actualCost,
+              }
+            : {}),
         },
       };
     },
@@ -1086,6 +1138,7 @@ function createRegistry() {
     },
     async finalizeUpload(args) {
       this.status = args.receipt.finalizationStatus === 0 ? "Committed" : "Partial";
+      this.receipt = args.receipt;
       this.finalizeCalls.push(args);
       return { status: this.status, receipt: args.receipt };
     },
