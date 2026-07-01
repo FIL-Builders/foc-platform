@@ -38,6 +38,32 @@ test("coordinator config rejects raw private key material", () => {
   );
 });
 
+test("coordinator config bounds default requested copies to uint8", () => {
+  assert.throws(
+    () =>
+      loadCoordinatorConfig({
+        FOC_COORDINATOR_DEFAULT_REQUESTED_COPIES: "256",
+      }),
+    (error) => {
+      assert.equal(error.name, "CoordinatorConfigError");
+      assert.equal(error.code, "invalid_defaultRequestedCopies");
+      assert.match(error.message, /must fit uint8/);
+      return true;
+    },
+  );
+  assert.throws(
+    () =>
+      loadCoordinatorConfig({
+        FOC_COORDINATOR_DEFAULT_REQUESTED_COPIES: "0",
+      }),
+    (error) => {
+      assert.equal(error.name, "CoordinatorConfigError");
+      assert.equal(error.code, "invalid_default_requested_copies");
+      return true;
+    },
+  );
+});
+
 test("session-key config validates expiry and permissions hash", async () => {
   const permissionsHash = derivePermissionsHash({
     dataset: "write",
@@ -105,6 +131,40 @@ test("receipt mapping produces section 6.7-compatible committed receipt fields",
   assert.equal(receipt.copies[0].providerId, 111n);
 });
 
+test("receipt hash is canonical across object key insertion order", () => {
+  const requestA = requestFixture({ size: 4n, requestedCopies: 1 });
+  const requestB = {
+    maxCost: requestA.maxCost,
+    withCDN: requestA.withCDN,
+    requestedCopies: requestA.requestedCopies,
+    size: requestA.size,
+    metadataHash: requestA.metadataHash,
+    contentHash: requestA.contentHash,
+    idempotencyKey: requestA.idempotencyKey,
+    accountId: requestA.accountId,
+    objectId: requestA.objectId,
+  };
+  const result = {
+    actualCost: 7n,
+    completedCopies: 1,
+    pieceCidHash: "0x1111111111111111111111111111111111111111111111111111111111111111",
+    copies: [copyFixture()],
+  };
+
+  const receiptA = mapSynapseResultToUploadReceipt({
+    payer: PAYER,
+    request: requestA,
+    result,
+  });
+  const receiptB = mapSynapseResultToUploadReceipt({
+    payer: PAYER,
+    request: requestB,
+    result,
+  });
+
+  assert.equal(receiptA.receiptHash, receiptB.receiptHash);
+});
+
 test("upload bytes validate declared size and optional keccak content commitment", () => {
   const bytes = new Uint8Array([1, 2, 3, 4]);
   const contentHash = keccak256(bytes);
@@ -140,6 +200,42 @@ test("upload bytes validate declared size and optional keccak content commitment
   );
 });
 
+test("upload bytes validate identity-bytes32 content commitments", () => {
+  const bytes = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+  const contentHash = `0x${Buffer.from(bytes).toString("hex")}`;
+
+  assert.deepEqual(
+    validateUploadBytes({
+      bytes,
+      declaredSize: 32n,
+      contentHash: contentHash.toUpperCase().replace("0X", "0x"),
+      contentHashAlgorithm: "identity-bytes32",
+    }),
+    bytes,
+  );
+  assert.throws(
+    () =>
+      validateUploadBytes({
+        bytes: new Uint8Array([1, 2, 3, 4]),
+        declaredSize: 4n,
+        contentHash,
+        contentHashAlgorithm: "identity-bytes32",
+      }),
+    /must be exactly 32 bytes/,
+  );
+});
+
+test("upload byte validation describes accepted input shapes", () => {
+  assert.throws(
+    () =>
+      validateUploadBytes({
+        bytes: { unsupported: true },
+        declaredSize: 4n,
+      }),
+    /Uint8Array, hex\/text string, or number array/,
+  );
+});
+
 test("local hosted coordinator starts and finalizes through injected adapters", async () => {
   const registry = createRegistry();
   const uploadCalls = [];
@@ -168,6 +264,27 @@ test("local hosted coordinator starts and finalizes through injected adapters", 
   assert.equal(uploadCalls.length, 1);
   assert.equal(replay, first);
   assert.equal(first.mocked.focBytesMoved, false);
+});
+
+test("local hosted coordinator resumes Uploading objects without replaying startUpload", async () => {
+  const registry = createRegistry();
+  registry.status = "Uploading";
+  const uploadCalls = [];
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+
+  const result = await coordinator.executeUpload({
+    objectId: 1n,
+    request: requestFixture({ size: 4n }),
+    bytes: new Uint8Array([1, 2, 3, 4]),
+  });
+
+  assert.equal(result.status, "Committed");
+  assert.equal(registry.startCalls.length, 0);
+  assert.equal(registry.finalizeCalls.length, 1);
+  assert.equal(uploadCalls.length, 1);
 });
 
 test("local hosted coordinator records failUpload and caches failed idempotency result", async () => {
@@ -213,6 +330,50 @@ test("local hosted coordinator records failUpload and caches failed idempotency 
   assert.equal(registry.failCalls.length, 1);
   assert.equal(registry.failCalls[0].chargedCost, 0n);
   assert.equal(registry.failCalls[0].reasonHash, mapFailureToReasonHash(uploadError));
+});
+
+test("local hosted coordinator caches failure even when registry failUpload throws", async () => {
+  const registry = createRegistry();
+  const uploadCalls = [];
+  const failRecordError = new Error("failure tx rejected");
+  failRecordError.code = "failure_tx_rejected";
+  registry.failUpload = async (args) => {
+    registry.failCalls.push(args);
+    throw failRecordError;
+  };
+  const uploadError = new Error("simulated provider timeout");
+  uploadError.code = "provider_timeout";
+  const coordinator = createCoordinator({
+    registry,
+    focClient: {
+      async upload(input) {
+        uploadCalls.push(input);
+        throw uploadError;
+      },
+    },
+  });
+  const request = requestFixture({ size: 4n });
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await assert.rejects(
+      () =>
+        coordinator.executeUpload({
+          objectId: 1n,
+          request,
+          bytes: new Uint8Array([1, 2, 3, 4]),
+        }),
+      (error) => {
+        assert.equal(error.name, "HostedCoordinatorError");
+        assert.equal(error.code, "coordinator_upload_failed");
+        assert.notEqual(error.code, "upload_in_progress");
+        assert.equal(error.details.failRecordError.code, "failure_tx_rejected");
+        return true;
+      },
+    );
+  }
+
+  assert.equal(uploadCalls.length, 1);
+  assert.equal(registry.failCalls.length, 1);
 });
 
 test("local hosted coordinator does not failUpload an already terminal object", async () => {

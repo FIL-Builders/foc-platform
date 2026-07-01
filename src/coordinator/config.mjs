@@ -33,9 +33,10 @@ export function loadCoordinatorConfig(env = process.env) {
       ZERO_BYTES32,
     ),
     maxBytes: optionalUint(env.FOC_COORDINATOR_MAX_BYTES, "maxBytes"),
-    defaultRequestedCopies: Number(
-      optionalUint(env.FOC_COORDINATOR_DEFAULT_REQUESTED_COPIES, "defaultRequestedCopies") ?? 2n,
-    ),
+    defaultRequestedCopies: optionalUint8(
+      env.FOC_COORDINATOR_DEFAULT_REQUESTED_COPIES,
+      "defaultRequestedCopies",
+    ) ?? 2,
   };
 
   assertNoSecretMaterial(config, env);
@@ -151,6 +152,15 @@ function optionalAddress(value, label) {
 function optionalUint(value, label) {
   if (value === undefined || value === null || value === "") return undefined;
   return normalizeUint(value, label);
+}
+
+function optionalUint8(value, label) {
+  const bigint = optionalUint(value, label);
+  if (bigint === undefined) return undefined;
+  if (bigint > 255n) {
+    throw new CoordinatorConfigError(`invalid_${label}`, `${label} must fit uint8`);
+  }
+  return Number(bigint);
 }
 
 function normalizeUint(value, label) {

@@ -181,12 +181,24 @@ function normalizeBytes(bytes) {
   if (bytes instanceof Uint8Array) return bytes;
   if (typeof bytes === "string") return toBytes(bytes);
   if (Array.isArray(bytes)) return Uint8Array.from(bytes);
-  throw new CoordinatorReceiptError("invalid_upload_bytes", "upload bytes must be Uint8Array");
+  throw new CoordinatorReceiptError(
+    "invalid_upload_bytes",
+    "upload bytes must be Uint8Array, hex/text string, or number array",
+  );
 }
 
 function hashBytes(bytes, algorithm) {
   if (algorithm === "keccak256") return keccak256(bytes);
-  if (algorithm === "identity-bytes32") return bytesToHex(bytes);
+  if (algorithm === "identity-bytes32") {
+    if (bytes.byteLength !== 32) {
+      throw new CoordinatorReceiptError(
+        "invalid_identity_bytes32",
+        "identity-bytes32 content commitments must be exactly 32 bytes",
+        { actualBytes: String(bytes.byteLength) },
+      );
+    }
+    return bytesToHex(bytes).toLowerCase();
+  }
   throw new CoordinatorReceiptError(
     "unsupported_content_hash_algorithm",
     "unsupported content hash algorithm",
@@ -238,7 +250,11 @@ function jsonSafe(value) {
   if (typeof value === "bigint") return value.toString();
   if (Array.isArray(value)) return value.map(jsonSafe);
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, jsonSafe(item)]));
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, jsonSafe(item)]),
+    );
   }
   return value;
 }

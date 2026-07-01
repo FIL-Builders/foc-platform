@@ -130,11 +130,13 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
     });
   }
 
-  await maybeCall(registry.startUpload, registry, {
-    objectId: prepared.objectId,
-    account: prepared.account,
-    sessionKey: publicSessionKey(sessionKey),
-  });
+  if (currentObject?.status !== "Uploading") {
+    await maybeCall(registry.startUpload, registry, {
+      objectId: prepared.objectId,
+      account: prepared.account,
+      sessionKey: publicSessionKey(sessionKey),
+    });
+  }
 
   const synapseResult = await focClient.upload({
     objectId: prepared.objectId,
@@ -176,22 +178,37 @@ async function failPreparedUpload({ prepared, registry, sessionKey, config, erro
     error,
   });
 
-  const failResult = await maybeCall(registry.failUpload, registry, {
-    objectId: prepared.objectId,
-    account: prepared.account,
-    reasonHash,
-    chargedCost: 0n,
-    sessionKey: publicSessionKey(sessionKey),
-    receipt: contractReceipt(failureReceipt),
-  });
+  let failResult;
+  let failRecordError;
+  try {
+    failResult = await maybeCall(registry.failUpload, registry, {
+      objectId: prepared.objectId,
+      account: prepared.account,
+      reasonHash,
+      chargedCost: 0n,
+      sessionKey: publicSessionKey(sessionKey),
+      receipt: contractReceipt(failureReceipt),
+    });
+  } catch (recordError) {
+    failRecordError = recordError;
+  }
 
   return new HostedCoordinatorError(
     "coordinator_upload_failed",
-    "coordinator upload failed and registry failure was recorded when supported",
+    failRecordError
+      ? "coordinator upload failed and registry failure recording failed"
+      : "coordinator upload failed and registry failure was recorded when supported",
     {
       objectId: String(prepared.objectId),
       reasonHash,
       failResult,
+      failRecordError: failRecordError
+        ? {
+            code: failRecordError.code,
+            message: failRecordError.message,
+            name: failRecordError.name,
+          }
+        : undefined,
       sourceCode: error?.code,
       sourceMessage: error?.message,
     },
