@@ -8,6 +8,7 @@ This repository uses a small Node + Foundry workspace.
 pnpm install
 pnpm lint
 pnpm test
+pnpm test:api
 pnpm test:node
 pnpm test:spine
 pnpm test:contracts
@@ -47,3 +48,12 @@ registry artifact. The coordinator and receipt are deterministic local fixtures;
 no file bytes move, no Synapse SDK call runs, and no Calibration transaction is
 claimed. See `docs/upload-spine.md` for the mocked boundary and downstream Token
 Host Builder binding shape.
+
+## Platform API
+
+`src/api/platform-api.mjs` exposes a dependency-free route-equivalent API
+handler for upload requests, byte submission, status reads, object reads, and
+usage reads. It is intended for a Worker, Node server, or Token Host generated
+adapter to wrap. `pnpm test:api` covers idempotency, account mapping,
+authorization, retry/failure boundaries, and a dev-spine contract/read-model
+binding. See `docs/platform-api.md`.

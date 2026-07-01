@@ -57,3 +57,6 @@ demo-facing status payload with:
 Downstream Token Host Builder work should bind against the contract/read-model
 shape from this runner, while preserving the mocked boundary until the
 production coordinator and Calibration evidence land.
+
+`docs/platform-api.md` defines the route-equivalent API wrapper that consumes
+this status shape for generated UI/client binding.

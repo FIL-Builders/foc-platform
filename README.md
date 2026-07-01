@@ -63,5 +63,7 @@ Smart-account payers, contract treasury payment, direct browser-to-FOC upload, B
 
 The next recommended step is to complete the Phase 0 Filecoin Calibration compatibility report and Token Host Builder compatibility matrix in `spec.md`, including required transaction hashes, pass/fail answers, SDK gaps, builder gaps, and the final recommended v1 implementation mode.
 
-For local development, `pnpm test:spine` runs the mocked vertical upload spine.
-See [`docs/upload-spine.md`](./docs/upload-spine.md).
+For local development, `pnpm test:spine` runs the mocked vertical upload spine,
+and `pnpm test:api` validates the route-equivalent platform API surface. See
+[`docs/upload-spine.md`](./docs/upload-spine.md) and
+[`docs/platform-api.md`](./docs/platform-api.md).

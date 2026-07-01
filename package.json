@@ -9,6 +9,7 @@
     "build:contracts": "forge build",
     "lint": "node scripts/check-workspace.mjs",
     "test": "pnpm test:node && pnpm test:contracts",
+    "test:api": "node --test test/platform-api.test.mjs",
     "test:contracts": "forge test",
     "test:node": "node --test",
     "test:spine": "node --test test/dev-upload-spine.test.mjs"
