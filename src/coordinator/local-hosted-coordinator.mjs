@@ -33,6 +33,7 @@ const UPLOAD_STATUS_LABELS = Object.freeze([
   "Expired",
   "Deleted",
 ]);
+const PRE_FOC_RETRYABLE_ERROR = Symbol("preFocRetryableError");
 
 export function createLocalHostedCoordinator({
   config,
@@ -64,10 +65,11 @@ export function createLocalHostedCoordinator({
       const prepared = prepareInput(input, config, sessionKey, clock);
       const key =
         preflightIdempotency?.key ??
-        idempotencyOperationKey({
+        coordinatorIdempotencyOperationKey({
           objectId: prepared.objectId,
           idempotencyKey: prepared.idempotencyKey,
           bytes: prepared.bytes,
+          account: prepared.account,
         });
       const cached = cachedIdempotencyResult(idempotencyStore.get(key), prepared);
       if (cached.hit) return cached.result;
@@ -85,9 +87,12 @@ export function createLocalHostedCoordinator({
         idempotencyStore.set(key, { state: "completed", result });
         return result;
       } catch (error) {
+        if (isPreFocRetryableError(error) || error?.code === "finalize_upload_failed") {
+          idempotencyStore.delete(key);
+          throw error;
+        }
         const mapped =
           error?.code === "terminal_upload" ||
-          error?.code === "finalize_upload_failed" ||
           error?.code === "request_expired" ||
           error?.code === "invalid_request_expiry"
             ? error
@@ -204,10 +209,26 @@ function preflightIdempotencyOperation(input = {}) {
     return undefined;
   }
   return {
-    key: idempotencyOperationKey({ objectId, idempotencyKey }),
+    key: coordinatorIdempotencyOperationKey({
+      objectId,
+      idempotencyKey,
+      account: input?.account,
+    }),
     objectId,
     idempotencyKey,
   };
+}
+
+function coordinatorIdempotencyOperationKey({ objectId, idempotencyKey, bytes, account }) {
+  const baseKey = idempotencyOperationKey({ objectId, idempotencyKey, bytes });
+  const accountKey = accountIdempotencyScope(account);
+  return accountKey ? `${accountKey}:${baseKey}` : baseKey;
+}
+
+function accountIdempotencyScope(account) {
+  const value = account?.accountId ?? account?.id ?? account?.user ?? account?.address;
+  if (value === undefined || value === null || value === "") return undefined;
+  return String(value).toLowerCase();
 }
 
 function cachedIdempotencyResult(existing, details) {
@@ -225,7 +246,7 @@ function cachedIdempotencyResult(existing, details) {
 }
 
 async function executePreparedUpload({ prepared, registry, focClient, sessionKey, config, clock }) {
-  const currentObject = await readUploadObject(registry, prepared);
+  const currentObject = await preFocRetryableCall(() => readUploadObject(registry, prepared));
   if (currentObject?.status && TERMINAL_UPLOAD_STATUSES.includes(currentObject.status)) {
     throw new HostedCoordinatorError("terminal_upload", "terminal upload cannot accept bytes", {
       objectId: prepared.objectId,
@@ -235,7 +256,7 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
   assertUploadRequestNotExpired({ prepared, object: currentObject, now: clock() });
 
   if (currentObject?.status !== "Uploading") {
-    await startOrResumeUploading({ prepared, registry, sessionKey });
+    await preFocRetryableCall(() => startOrResumeUploading({ prepared, registry, sessionKey }));
   }
 
   assertUploadRequestNotExpired({ prepared, object: currentObject, now: clock() });
@@ -281,6 +302,54 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
   }
 
   return Object.freeze(uploadResult({ prepared, receipt, registryResult: finalizeResult, config }));
+}
+
+async function preFocRetryableCall(call) {
+  try {
+    return await call();
+  } catch (error) {
+    if (isCoordinatorTerminalError(error)) throw error;
+    throw markPreFocRetryableError(error);
+  }
+}
+
+function isCoordinatorTerminalError(error) {
+  return (
+    error?.name === "HostedCoordinatorError" &&
+    (error.code === "terminal_upload" ||
+      error.code === "request_expired" ||
+      error.code === "invalid_request_expiry")
+  );
+}
+
+function markPreFocRetryableError(error) {
+  if (error && typeof error === "object" && definePreFocRetryableMarker(error)) {
+    return error;
+  }
+  const wrapped = new HostedCoordinatorError(
+    "pre_foc_upload_failed",
+    "pre-FOC upload step failed before bytes were committed",
+    {},
+    error,
+  );
+  definePreFocRetryableMarker(wrapped);
+  return wrapped;
+}
+
+function definePreFocRetryableMarker(error) {
+  try {
+    Object.defineProperty(error, PRE_FOC_RETRYABLE_ERROR, {
+      value: true,
+      configurable: true,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isPreFocRetryableError(error) {
+  return Boolean(error?.[PRE_FOC_RETRYABLE_ERROR]);
 }
 
 function assertUploadRequestNotExpired({ prepared, object, now }) {

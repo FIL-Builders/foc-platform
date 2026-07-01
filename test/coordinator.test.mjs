@@ -637,6 +637,61 @@ test("local hosted coordinator replays completed idempotency before session vali
   assert.equal(uploadCalls.length, 1);
 });
 
+test("local hosted coordinator validates account before completed idempotency replay", async () => {
+  const registry = createRegistry();
+  const uploadCalls = [];
+  const baseReadUploadStatus = registry.readUploadStatus;
+  const readCalls = [];
+  registry.readUploadStatus = async function readUploadStatus(args) {
+    readCalls.push(args);
+    if (args.account?.accountId !== ACCOUNT_ID) {
+      throw new HostedCoordinatorError("account_mismatch", "upload does not belong to account", {
+        expectedAccountId: ACCOUNT_ID,
+        actualAccountId: args.account?.accountId,
+      });
+    }
+    return baseReadUploadStatus.call(this, args);
+  };
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+  const request = requestFixture({ size: 4n });
+  const account = { accountId: ACCOUNT_ID, user: ROOT };
+  const otherAccount = {
+    accountId: "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    user: "0x0000000000000000000000000000000000004000",
+  };
+
+  const first = await coordinator.executeUpload({
+    objectId: 1n,
+    account,
+    request,
+    bytes: new Uint8Array([1, 2, 3, 4]),
+  });
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        account: otherAccount,
+        request,
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "account_mismatch");
+      assert.equal(error.details.actualAccountId, otherAccount.accountId);
+      return true;
+    },
+  );
+
+  assert.equal(first.status, "Committed");
+  assert.equal(uploadCalls.length, 1);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(readCalls.length, 2);
+});
+
 test("local hosted coordinator uses request idempotency key for running uploads", async () => {
   const registry = createRegistry();
   const uploadCalls = [];
@@ -701,6 +756,49 @@ test("local hosted coordinator uses request idempotency key for running uploads"
   releaseUpload();
   const result = await first;
   assert.equal(result.status, "Committed");
+});
+
+test("local hosted coordinator leaves pre-FOC start failures retryable", async () => {
+  const registry = createRegistry();
+  const uploadCalls = [];
+  const startError = new Error("registry rpc unavailable");
+  startError.code = "rpc_unavailable";
+  let shouldFailStart = true;
+  registry.startUpload = async function startUpload(args) {
+    this.startCalls.push(args);
+    if (shouldFailStart) throw startError;
+    this.status = "Uploading";
+    return { status: this.status };
+  };
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+  const request = requestFixture({ size: 4n });
+  const input = {
+    objectId: 1n,
+    request,
+    bytes: new Uint8Array([1, 2, 3, 4]),
+  };
+
+  await assert.rejects(
+    () => coordinator.executeUpload(input),
+    (error) => {
+      assert.equal(error, startError);
+      return true;
+    },
+  );
+
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 0);
+
+  shouldFailStart = false;
+  const retry = await coordinator.executeUpload(input);
+
+  assert.equal(retry.status, "Committed");
+  assert.equal(registry.startCalls.length, 2);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 1);
 });
 
 test("local hosted coordinator validates request content hash when algorithm is available", async () => {
