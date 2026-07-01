@@ -273,8 +273,9 @@ function normalizeUploadRequest(body, headers, account) {
     size: size.toString(),
     requestedCopies,
     withCDN: Boolean(body.withCDN),
-    maxCost: decimal(body.maxCost ?? 0),
-    requestExpiresAt: body.requestExpiresAt === undefined ? undefined : decimal(body.requestExpiresAt),
+    maxCost: safeDecimal(body.maxCost ?? 0, "maxCost"),
+    requestExpiresAt:
+      body.requestExpiresAt === undefined ? undefined : safeDecimal(body.requestExpiresAt, "requestExpiresAt"),
   };
 }
 
@@ -364,6 +365,14 @@ function positiveInteger(value, label) {
     return number;
   } catch {
     throw new PlatformApiError(400, `invalid_${label}`, `${label} must be a positive integer`);
+  }
+}
+
+function safeDecimal(value, label) {
+  try {
+    return decimal(value);
+  } catch {
+    throw new PlatformApiError(400, `invalid_${label}`, `${label} must be an integer`);
   }
 }
 
