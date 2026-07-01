@@ -146,6 +146,11 @@ test("bytes, status, object, and usage endpoints use the registry adapter state"
     path: create.body.links.status,
     headers: platformHeaders(),
   });
+  const tokenHostStatus = await api.handle({
+    method: "GET",
+    path: `/storage/uploads/status?objectId=${create.body.request.objectId}`,
+    headers: platformHeaders(),
+  });
   const object = await api.handle({
     method: "GET",
     path: create.body.links.object,
@@ -160,9 +165,26 @@ test("bytes, status, object, and usage endpoints use the registry adapter state"
   assert.equal(bytes.status, 200);
   assert.equal(bytes.body.upload.status, "Committed");
   assert.equal(status.body.upload.status, "Committed");
+  assert.equal(tokenHostStatus.status, 200);
+  assert.equal(tokenHostStatus.body.upload.objectId, create.body.request.objectId);
   assert.equal(object.body.object.receiptHash, registry.fixtureReceiptHash);
   assert.equal(usage.body.usage.activeBytes, "4096");
   assert.equal(usage.body.usage.totalFinalizedUploads, "1");
+});
+
+test("Token Host status endpoint rejects missing object id before adapter work", async () => {
+  const registry = createMemoryRegistry();
+  const api = createPlatformApi({ registry });
+
+  const response = await api.handle({
+    method: "GET",
+    path: "/storage/uploads/status",
+    headers: platformHeaders(),
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error.code, "missing_object_id");
+  assert.equal(registry.objects.size, 0);
 });
 
 test("authorization mapping protects status, object, and usage reads", async () => {

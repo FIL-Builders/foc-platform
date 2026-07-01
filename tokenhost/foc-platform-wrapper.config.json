@@ -3,8 +3,8 @@
   "mode": "handWrittenRegistryWrapper",
   "schemaPath": "apps/tokenhost-foc-platform/schema.json",
   "builder": {
-    "repoPath": "/Users/michaelseiler/dev/tokenhost/tokenhost-builder",
-    "buildCommand": "TH_UPLOAD_RUNNER=remote TH_UPLOAD_PROVIDER=filecoin_onchain_cloud TH_UPLOAD_REMOTE_ENDPOINT_URL=/storage/upload TH_UPLOAD_REMOTE_STATUS_URL=/storage/uploads/status pnpm th build /Users/michaelseiler/dev/fil-builders/foc-platform/apps/tokenhost-foc-platform/schema.json --chain filecoin_calibration --tx-mode sponsored --relay-base-url /__tokenhost/relay --out /tmp/foc-platform-tokenhost-demo",
+    "repoPath": "$TOKENHOST_BUILDER_DIR",
+    "buildCommand": "TH_UPLOAD_RUNNER=remote TH_UPLOAD_PROVIDER=filecoin_onchain_cloud TH_UPLOAD_REMOTE_ENDPOINT_URL=/storage/upload TH_UPLOAD_REMOTE_STATUS_URL=/storage/uploads/status pnpm --dir \"$TOKENHOST_BUILDER_DIR\" th build \"$FOC_PLATFORM_DIR/apps/tokenhost-foc-platform/schema.json\" --chain filecoin_calibration --tx-mode sponsored --relay-base-url /__tokenhost/relay --out /tmp/foc-platform-tokenhost-demo",
     "chain": "filecoin_calibration",
     "txMode": "sponsored",
     "expectedArtifacts": [
@@ -63,7 +63,11 @@
     "routes": {
       "createUpload": ["POST /storage/upload-requests", "POST /storage/upload"],
       "uploadBytes": "POST /storage/uploads/:objectId/bytes",
-      "uploadStatus": ["GET /storage/uploads/:objectId/status", "GET /storage/uploads/:objectId"],
+      "uploadStatus": [
+        "GET /storage/uploads/:objectId/status",
+        "GET /storage/uploads/:objectId",
+        "GET /storage/uploads/status?objectId=:objectId"
+      ],
       "object": "GET /storage/objects/:objectId",
       "usage": ["GET /storage/usage/:accountId", "GET /usage"]
     },

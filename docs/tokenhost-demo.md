@@ -21,19 +21,25 @@ upload adapter wiring. It is not the authoritative storage lifecycle.
 
 ## Builder Evidence
 
-The adjacent builder checkout used for the issue #13 evidence is:
+Set these paths for your local checkouts:
 
 ```bash
-cd /Users/michaelseiler/dev/tokenhost/tokenhost-builder
-pnpm install
-pnpm build
-pnpm th validate /Users/michaelseiler/dev/fil-builders/foc-platform/apps/tokenhost-foc-platform/schema.json
+export FOC_PLATFORM_DIR=/path/to/foc-platform
+export TOKENHOST_BUILDER_DIR=/path/to/tokenhost-builder
+```
+
+Run the builder flow with:
+
+```bash
+pnpm --dir "$TOKENHOST_BUILDER_DIR" install
+pnpm --dir "$TOKENHOST_BUILDER_DIR" build
+pnpm --dir "$TOKENHOST_BUILDER_DIR" th validate "$FOC_PLATFORM_DIR/apps/tokenhost-foc-platform/schema.json"
 rm -rf /tmp/foc-platform-tokenhost-demo
 TH_UPLOAD_RUNNER=remote \
 TH_UPLOAD_PROVIDER=filecoin_onchain_cloud \
 TH_UPLOAD_REMOTE_ENDPOINT_URL=/storage/upload \
 TH_UPLOAD_REMOTE_STATUS_URL=/storage/uploads/status \
-pnpm th build /Users/michaelseiler/dev/fil-builders/foc-platform/apps/tokenhost-foc-platform/schema.json \
+pnpm --dir "$TOKENHOST_BUILDER_DIR" th build "$FOC_PLATFORM_DIR/apps/tokenhost-foc-platform/schema.json" \
   --chain filecoin_calibration \
   --tx-mode sponsored \
   --relay-base-url /__tokenhost/relay \
@@ -80,7 +86,7 @@ metadata:
     }
   },
   "ui": {
-    "bundleHash": "sha256:0e8e0140864631127c1922bc05fb6437ef850d3f3bb2a600bb96d6014df31e30"
+    "bundleHash": "sha256:<builder-emitted-ui-bundle-digest>"
   }
 }
 ```
@@ -106,7 +112,9 @@ Host CRUD output may help generate UI and upload scaffolding, but it must not
 replace section 6.7 semantics until a custom FOC module proves equivalence.
 
 The generated upload status endpoint `/storage/uploads/status` is Token Host
-upload-runner metadata. The section 6.7 object status route remains
+upload-runner metadata. It is served as
+`GET /storage/uploads/status?objectId=:objectId` and maps to the same registry
+read as the canonical section 6.7 object status route,
 `GET /storage/uploads/:objectId/status`.
 
 ## Current Builder Gaps

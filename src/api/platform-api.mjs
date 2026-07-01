@@ -8,7 +8,11 @@ const UINT256_MAX = (1n << 256n) - 1n;
 export const PLATFORM_API_ROUTES = Object.freeze({
   createUpload: ["POST /storage/upload-requests", "POST /storage/upload"],
   uploadBytes: "POST /storage/uploads/:objectId/bytes",
-  uploadStatus: ["GET /storage/uploads/:objectId/status", "GET /storage/uploads/:objectId"],
+  uploadStatus: [
+    "GET /storage/uploads/:objectId/status",
+    "GET /storage/uploads/:objectId",
+    "GET /storage/uploads/status?objectId=:objectId",
+  ],
   object: "GET /storage/objects/:objectId",
   usage: ["GET /storage/usage/:accountId", "GET /usage"],
 });
@@ -87,7 +91,7 @@ export function createPlatformApi({
     async handle(request) {
       try {
         const normalized = normalizeRequest(request);
-        const route = matchRoute(normalized.method, normalized.pathname);
+        const route = matchRoute(normalized.method, normalized.pathname, normalized.searchParams);
         const auth = authenticate(normalized.headers);
         const account = await mapAccount(accountMapper, auth);
 
@@ -218,6 +222,7 @@ function normalizeRequest(request = {}) {
   return {
     method,
     pathname: url.pathname.replace(/\/+$/, "") || "/",
+    searchParams: url.searchParams,
     headers: normalizeHeaders(request.headers ?? {}),
     body: request.body ?? {},
   };
@@ -317,7 +322,7 @@ function normalizeUploadRequest(body, headers, account) {
   };
 }
 
-function matchRoute(method, pathname) {
+function matchRoute(method, pathname, searchParams = new URLSearchParams()) {
   if (
     method === "POST" &&
     (pathname === "/storage/upload" || pathname === "/storage/upload-requests")
@@ -333,6 +338,18 @@ function matchRoute(method, pathname) {
   const uploadStatus = pathname.match(/^\/storage\/uploads\/([0-9]+)(?:\/status)?$/);
   if (method === "GET" && uploadStatus) {
     return { name: "uploadStatus", params: { objectId: uploadStatus[1] } };
+  }
+
+  if (method === "GET" && pathname === "/storage/uploads/status") {
+    const objectId = searchParams.get("objectId");
+    if (!objectId || !/^[0-9]+$/.test(objectId)) {
+      throw new PlatformApiError(
+        400,
+        "missing_object_id",
+        "objectId query parameter is required",
+      );
+    }
+    return { name: "uploadStatus", params: { objectId } };
   }
 
   const object = pathname.match(/^\/storage\/objects\/([0-9]+)$/);

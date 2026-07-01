@@ -13,6 +13,7 @@ Canonical routes follow `spec.md` section 6.7.10:
 POST /storage/upload-requests
 POST /storage/uploads/:objectId/bytes
 GET  /storage/uploads/:objectId/status
+GET  /storage/uploads/status?objectId=:objectId
 GET  /storage/objects/:objectId
 GET  /storage/usage/:accountId
 ```
@@ -24,6 +25,10 @@ POST /storage/upload
 GET  /storage/uploads/:objectId
 GET  /usage
 ```
+
+`GET /storage/uploads/status?objectId=:objectId` is the Token Host upload
+runner status alias for generated upload metadata. The canonical object status
+route remains `GET /storage/uploads/:objectId/status`.
 
 Requests use normal platform authentication outside this repo. The current
 handler requires `x-platform-user-id` as the authenticated platform subject and
