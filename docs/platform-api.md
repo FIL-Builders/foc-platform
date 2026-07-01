@@ -87,3 +87,25 @@ The dev tests also bind these read endpoints to the `runDevUploadSpine`
 contract/read-model result, preserving the mocked boundary: no real FOC bytes,
 Synapse SDK call, or Calibration transaction is claimed until the hosted
 coordinator and Phase 0 evidence exist.
+
+## Admin API Binding
+
+The user API above is separate from the operator/admin surface in
+`src/api/platform-admin-api.mjs`. Admin routes are read-only, require an
+explicit admin authorization hook, and do not use user object-ownership checks:
+
+```http
+GET /admin/storage/dashboard
+GET /admin/storage/objects
+GET /admin/storage/objects/:objectId
+GET /admin/storage/usage
+GET /admin/storage/datasets
+GET /admin/storage/coordinators
+GET /admin/storage/reconciliation
+```
+
+Admin responses are built by `src/admin/reconciliation.mjs` from registry
+contract views or reconstructed event state. Optional FOC evidence can be
+supplied by a wrapper; without it, stored-object reconciliation reports
+`foc_evidence_not_checked` rather than claiming live FOC verification. See
+[`docs/admin-reconciliation.md`](./admin-reconciliation.md).

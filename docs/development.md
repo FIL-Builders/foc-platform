@@ -8,6 +8,7 @@ This repository uses a small Node + Foundry workspace.
 pnpm install
 pnpm lint
 pnpm test
+pnpm test:admin
 pnpm test:api
 pnpm test:node
 pnpm test:spine
@@ -59,6 +60,15 @@ usage reads. It is intended for a Worker, Node server, or Token Host generated
 adapter to wrap. `pnpm test:api` covers idempotency, account mapping,
 authorization, retry/failure boundaries, and a dev-spine contract/read-model
 binding. See `docs/platform-api.md`.
+
+## Admin Reconciliation
+
+`src/admin/reconciliation.mjs` builds read-only operator views from
+`FocPlatformRegistry` contract/read-model state, and
+`src/api/platform-admin-api.mjs` exposes route-equivalent admin reads behind an
+explicit admin authorization hook. `pnpm test:admin` covers object, usage,
+dataset/provider, coordinator, mismatch, and auth fixtures. See
+`docs/admin-reconciliation.md`.
 
 ## Token Host Demo
 

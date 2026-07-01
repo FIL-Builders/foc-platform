@@ -42,6 +42,12 @@
         "impact": "Generated CRUD must wrap the hand-written registry; it is not production-equivalent to section 6.7."
       },
       {
+        "issue": "tokenhost/tokenhost-builder#81",
+        "title": "Generate FOC Platform admin and reconciliation surfaces",
+        "status": "open",
+        "impact": "Admin and reconciliation views live in the wrapper read model until the builder emits generated object, usage, dataset, coordinator, and mismatch surfaces."
+      },
+      {
         "issue": "tokenhost/tokenhost-builder#82",
         "title": "Add FOC Platform receipt-aware upload runner path",
         "status": "open",
@@ -121,6 +127,23 @@
       "accountId": "derivedServerSideBytes32"
     }
   },
+  "adminApi": {
+    "sourcePath": "src/api/platform-admin-api.mjs",
+    "projectionPath": "src/admin/reconciliation.mjs",
+    "routes": {
+      "dashboard": "GET /admin/storage/dashboard",
+      "objects": "GET /admin/storage/objects",
+      "object": "GET /admin/storage/objects/:objectId",
+      "usage": "GET /admin/storage/usage",
+      "datasets": "GET /admin/storage/datasets",
+      "coordinators": "GET /admin/storage/coordinators",
+      "reconciliation": "GET /admin/storage/reconciliation"
+    },
+    "auth": {
+      "mode": "explicitAdminHook",
+      "defaultHeader": "x-platform-admin-token"
+    }
+  },
   "tokenHostRuntime": {
     "uploadProvider": "filecoin_onchain_cloud",
     "uploadRunnerMode": "remote",
@@ -162,13 +185,36 @@
         "GET /storage/usage/:accountId",
         "GET /usage"
       ]
+    },
+    {
+      "id": "admin-objects",
+      "label": "Admin object browser",
+      "uses": [
+        "GET /admin/storage/objects",
+        "GET /admin/storage/objects/:objectId"
+      ]
+    },
+    {
+      "id": "admin-usage",
+      "label": "Admin usage dashboard",
+      "uses": [
+        "GET /admin/storage/usage"
+      ]
+    },
+    {
+      "id": "admin-reconciliation",
+      "label": "Admin reconciliation",
+      "uses": [
+        "GET /admin/storage/reconciliation"
+      ]
     }
   ],
   "boundaries": [
     "Token Host generated CRUD is a UI/upload scaffold only.",
     "FocPlatformRegistry remains authoritative for lifecycle, receipts, usage, relayer accountability, and coordinator controls.",
+    "Admin and reconciliation screens are read-only wrapper projections until Token Host Builder emits native FOC Platform admin surfaces.",
     "No generated artifact may include coordinator private keys or platform root secrets.",
     "Real Filecoin Calibration and Synapse execution remain gated by Phase 0 credentials/evidence."
   ],
-  "configSha256": "0x14791d934f58ea27a081db1dc35984b2a0b84725e87fde8abba5e1d44b995e99"
+  "configSha256": "0x148a88c6a38b26c8dfd138a31d2178d2611ce656ac452ded101d58878cba006a"
 }
