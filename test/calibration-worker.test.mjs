@@ -125,5 +125,15 @@ test("Calibration registry runner honors documented upload tx hash env", async (
     uploadTxHash: txHash,
     addPieceTxHash: txHash,
   });
+  assert.deepEqual(
+    runner.normalizeDemoUploadTxHash({
+      FOC_PLATFORM_DEMO_UPLOAD_TX_HASH: " ",
+      FOC_PLATFORM_DEMO_ADD_PIECE_TX_HASH: txHash,
+    }),
+    {
+      uploadTxHash: txHash,
+      addPieceTxHash: txHash,
+    },
+  );
   assert.equal(runner.normalizeDemoUploadTxHash({}).uploadTxHash, null);
 });

@@ -328,8 +328,9 @@ async function loadConfig(env) {
 }
 
 export function normalizeDemoUploadTxHash(env = {}) {
-  const rawUploadTxHash =
-    env.FOC_PLATFORM_DEMO_UPLOAD_TX_HASH ?? env.FOC_PLATFORM_DEMO_ADD_PIECE_TX_HASH;
+  const primaryUploadTxHash = String(env.FOC_PLATFORM_DEMO_UPLOAD_TX_HASH ?? "").trim();
+  const aliasUploadTxHash = String(env.FOC_PLATFORM_DEMO_ADD_PIECE_TX_HASH ?? "").trim();
+  const rawUploadTxHash = primaryUploadTxHash || aliasUploadTxHash;
   const addPieceTxHash = normalizeBytes32(
     rawUploadTxHash || ZERO_BYTES32,
     "FOC_PLATFORM_DEMO_UPLOAD_TX_HASH or FOC_PLATFORM_DEMO_ADD_PIECE_TX_HASH",
