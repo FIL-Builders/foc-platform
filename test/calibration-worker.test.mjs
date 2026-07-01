@@ -109,3 +109,10 @@ test("Committed Worker config and evidence artifact do not contain private keys"
   assert.equal(/PRIVATE_KEY|SECRET|WALLET_SEED/.test(wrangler), false);
   assert.equal(/privateKey|walletSeed/.test(evidence), false);
 });
+
+test("Calibration registry runner is safe to import", async () => {
+  const runner = await import(`../scripts/run-calibration-registry-demo.mjs?test=${Date.now()}`);
+
+  assert.equal(typeof runner.runCalibrationRegistryDemo, "function");
+  assert.equal(typeof runner.main, "function");
+});

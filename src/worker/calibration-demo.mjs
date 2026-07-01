@@ -19,6 +19,8 @@ const UPLOAD_STATUS_LABELS = Object.freeze([
   "Deleted",
 ]);
 
+// Kept local to make the deployed Worker bundle independent of Node-oriented
+// artifact generation modules.
 const REGISTRY_READ_ABI = [
   {
     type: "function",

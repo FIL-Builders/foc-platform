@@ -123,8 +123,8 @@
     "privilegedActions": false,
     "servesPrivateKeys": false,
     "url": "https://foc-platform-calibration-demo.snissn.workers.dev",
-    "versionId": "9d54a048-8da1-45e6-9632-885f0541136d",
-    "startupTimeMs": 13,
+    "versionId": "bee0fdaf-f4ac-4a6a-8556-46842d76c6cb",
+    "startupTimeMs": 14,
     "validatedEndpoints": [
       "/api/health",
       "/api/demo/evidence",

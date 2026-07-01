@@ -144,7 +144,7 @@ The committed demo evidence now points at a live Calibration object:
 | Piece CID | `bafkzcibeqcad6egqwuynxmfu6jof2lzkfdp65aelknasuautd4mmjgpvujkaq2ytey` |
 | Retrieval URL | `https://caliberation-pdp.infrafolio.com/piece/bafkzcibeqcad6egqwuynxmfu6jof2lzkfdp65aelknasuautd4mmjgpvujkaq2ytey` |
 | Worker URL | `https://foc-platform-calibration-demo.snissn.workers.dev` |
-| Worker version | `9d54a048-8da1-45e6-9632-885f0541136d` |
+| Worker version | `bee0fdaf-f4ac-4a6a-8556-46842d76c6cb` |
 
 Public registry transaction hashes:
 

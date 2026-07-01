@@ -1,4 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
   createPublicClient,
@@ -18,7 +20,6 @@ const DEFAULT_RPC_URL = "https://api.calibration.node.glif.io/rpc/v1";
 const DEFAULT_REGISTRY_ADDRESS = "0x7771d916a9d742B1D60597a332C7ABBd5796609c";
 const DEFAULT_EVIDENCE_PATH = "artifacts/calibration/demo-evidence.json";
 const ZERO_BYTES32 = `0x${"0".repeat(64)}`;
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const DEFAULT_GAS_LIMIT = 80_000_000n;
 const STATUS_LABELS = [
   "None",
@@ -32,10 +33,19 @@ const STATUS_LABELS = [
   "Deleted",
 ];
 
-const args = new Set(process.argv.slice(2));
+if (isMainModule(import.meta.url, process.argv[1])) {
+  try {
+    await main();
+  } catch (error) {
+    console.error(error?.stack ?? error);
+    process.exitCode = 1;
+  }
+}
 
-if (args.has("--help")) {
-  console.log(`Usage: node scripts/run-calibration-registry-demo.mjs [--write]
+export async function main({ argv = process.argv, stdout = console.log } = {}) {
+  const args = new Set(argv.slice(2));
+  if (args.has("--help")) {
+    stdout(`Usage: node scripts/run-calibration-registry-demo.mjs [--write]
 
 Required environment:
   PRIVATE_KEY or PLATFORM_ROOT_PRIVATE_KEY  local Calibration signer, never printed
@@ -52,14 +62,16 @@ Common optional environment:
   FOC_PLATFORM_DEMO_ADD_PIECE_TX_HASH      defaults to zero bytes32 when unavailable
   FOC_PLATFORM_DEMO_GAS_LIMIT              defaults to 80000000
 `);
-  process.exit(0);
+    return null;
+  }
+
+  const result = await runCalibrationRegistryDemo({
+    write: args.has("--write"),
+  });
+
+  stdout(JSON.stringify(result.summary, null, 2));
+  return result;
 }
-
-const result = await runCalibrationRegistryDemo({
-  write: args.has("--write"),
-});
-
-console.log(JSON.stringify(result.summary, null, 2));
 
 export async function runCalibrationRegistryDemo({ env = process.env, write = false } = {}) {
   const config = await loadConfig(env);
@@ -492,6 +504,9 @@ function jsonSafe(value) {
   if (value && typeof value === "object") {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, jsonSafe(item)]));
   }
-  if (value === ZERO_ADDRESS) return value;
   return value;
+}
+
+function isMainModule(metaUrl, entrypoint) {
+  return Boolean(entrypoint) && metaUrl === pathToFileURL(resolve(entrypoint)).href;
 }
