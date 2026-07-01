@@ -64,7 +64,7 @@ export function createLocalHostedCoordinator({
         );
         if (preflightCached.hit) return preflightCached.result;
       }
-      const prepared = prepareInput(input, config, sessionKey, clock, {
+      let prepared = prepareInput(input, config, sessionKey, clock, {
         requireBytes: !preflightCached?.pendingFinalize,
         pendingFinalize: preflightCached?.pendingFinalize,
       });
@@ -80,6 +80,12 @@ export function createLocalHostedCoordinator({
         ? preflightCached
         : cachedIdempotencyResult(idempotencyStore.get(key), prepared);
       if (cached.hit) return cached.result;
+      if (cached.pendingFinalize && !preflightCached?.pendingFinalize) {
+        prepared = prepareInput(input, config, sessionKey, clock, {
+          requireBytes: false,
+          pendingFinalize: cached.pendingFinalize,
+        });
+      }
       if (!cached.pendingFinalize) {
         assertCoordinatorSessionKey(config, sessionKey, clock);
       }
