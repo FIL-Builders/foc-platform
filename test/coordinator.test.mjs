@@ -1605,7 +1605,7 @@ test("local hosted coordinator does not failUpload after post-FOC finalize error
 
   const retry = await coordinator.executeUpload({
     objectId: 1n,
-    request,
+    idempotencyKey: request.idempotencyKey,
   });
 
   assert.equal(retry.status, "Committed");
@@ -1654,7 +1654,7 @@ test("local hosted coordinator rejects expired pending-finalize retries before f
     () =>
       coordinator.executeUpload({
         objectId: 1n,
-        request,
+        idempotencyKey: request.idempotencyKey,
       }),
     (error) => {
       assert.equal(error.name, "HostedCoordinatorError");

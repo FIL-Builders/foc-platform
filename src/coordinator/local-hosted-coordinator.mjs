@@ -66,6 +66,7 @@ export function createLocalHostedCoordinator({
       }
       const prepared = prepareInput(input, config, sessionKey, clock, {
         requireBytes: !preflightCached?.pendingFinalize,
+        pendingFinalize: preflightCached?.pendingFinalize,
       });
       const key =
         preflightIdempotency?.key ??
@@ -111,7 +112,11 @@ export function createLocalHostedCoordinator({
           throw error;
         }
         if (error?.code === "finalize_upload_failed" && error[FINALIZE_RECEIPT]) {
-          idempotencyStore.set(key, { state: "pending_finalize", receipt: error[FINALIZE_RECEIPT] });
+          idempotencyStore.set(key, {
+            state: "pending_finalize",
+            receipt: error[FINALIZE_RECEIPT],
+            prepared: pendingFinalizePrepared(prepared),
+          });
           throw error;
         }
         if (isPreFocRetryableError(error) || error?.code === "finalize_upload_failed") {
@@ -141,9 +146,15 @@ export function createLocalHostedCoordinator({
   });
 }
 
-function prepareInput(input = {}, config, sessionKey, clock, { requireBytes = true } = {}) {
-  const objectId = required(input.objectId, "objectId");
-  const request = required(input.request, "request");
+function prepareInput(
+  input = {},
+  config,
+  sessionKey,
+  clock,
+  { requireBytes = true, pendingFinalize } = {},
+) {
+  const objectId = required(input.objectId ?? pendingFinalize?.prepared?.objectId, "objectId");
+  const request = pendingFinalize?.prepared?.request ?? required(input.request, "request");
   let bytes;
   if (requireBytes) {
     const contentCommitment = resolveContentCommitment(input, request);
@@ -167,8 +178,18 @@ function prepareInput(input = {}, config, sessionKey, clock, { requireBytes = tr
     request,
     bytes,
     idempotencyKey: request.idempotencyKey ?? input.idempotencyKey,
-    account: input.account,
-    metadata: input.metadata ?? {},
+    account: input.account ?? pendingFinalize?.prepared?.account,
+    metadata: input.metadata ?? pendingFinalize?.prepared?.metadata ?? {},
+  };
+}
+
+function pendingFinalizePrepared(prepared) {
+  return {
+    objectId: prepared.objectId,
+    request: { ...prepared.request },
+    idempotencyKey: prepared.idempotencyKey,
+    account: prepared.account,
+    metadata: { ...prepared.metadata },
   };
 }
 
