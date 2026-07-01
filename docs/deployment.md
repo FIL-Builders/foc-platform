@@ -60,6 +60,33 @@ The repo does not contain funded credentials. Any PR claiming Calibration deploy
 success must include the deployed address, chain id, transaction hash, block
 number, artifact hash, and the exact command used with secrets redacted.
 
+## Operations Validation
+
+Run the production-hardening baseline before publishing new Worker evidence or
+claiming a healthy operator surface:
+
+```sh
+pnpm ops:validate
+pnpm ops:smoke -- --iterations 3
+npx wrangler deploy --dry-run --outdir /tmp/foc-platform-worker-dry-run
+```
+
+For a production-profile config check, set KMS/signer references instead of raw
+private keys:
+
+```sh
+FOC_PLATFORM_OPS_PROFILE=production \
+FOC_PLATFORM_ROOT_KMS_KEY_REF=projects/example/locations/global/keyRings/foc/cryptoKeys/root \
+FOC_COORDINATOR_KMS_KEY_REF=projects/example/locations/global/keyRings/foc/cryptoKeys/coordinator \
+FOC_PLATFORM_ADMIN_AUTH_AUDIENCE=https://admin.example.invalid \
+pnpm ops:validate
+```
+
+These commands prove only local config hygiene, deterministic API/coordinator
+semantics, and Worker bundle validity. They do not close the live FOC,
+session-key, payment, or KMS gates listed in
+[`docs/production-hardening-runbook.md`](./production-hardening-runbook.md).
+
 Current partial Phase 0 registry deployment evidence is recorded in
 [`docs/phase0-calibration-report.md`](./phase0-calibration-report.md). It proves
 Calibration registry deployment and runtime bytecode verification only. It does

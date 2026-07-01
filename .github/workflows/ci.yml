@@ -32,8 +32,17 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Validate operations baseline
+        run: pnpm ops:validate
+
+      - name: Smoke operations baseline
+        run: pnpm ops:smoke -- --iterations 3
+
       - name: Test
         run: pnpm test
+
+      - name: Validate Worker deploy bundle
+        run: pnpm worker:dry-run
 
       - name: Build committed artifacts
         run: pnpm build:artifacts

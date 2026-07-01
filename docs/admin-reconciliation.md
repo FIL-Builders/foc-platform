@@ -94,3 +94,14 @@ Full local gate:
 ```bash
 pnpm build:artifacts && pnpm lint && pnpm test
 ```
+
+Production-oriented operator checks:
+
+```bash
+pnpm ops:validate
+pnpm ops:smoke -- --iterations 3
+```
+
+The recovery workflow, mismatch triage, and remaining live-evidence gates are
+documented in
+[`docs/production-hardening-runbook.md`](./production-hardening-runbook.md).

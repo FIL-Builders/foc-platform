@@ -68,6 +68,11 @@ The byte endpoint is coordinator-facing in v1. Retrying bytes against a
 terminal upload returns a terminal-state error; clients should create a new
 upload request with a new idempotency key when they need a fresh attempt.
 
+Production HTTP wrappers must add authentication, body limits, rate limits,
+timeouts, and durable idempotency around this route-equivalent module. The
+baseline values and validation command are documented in
+[`docs/production-hardening-runbook.md`](./production-hardening-runbook.md).
+
 ## Token Host Binding
 
 Generated UI/client code should bind to:

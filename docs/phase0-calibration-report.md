@@ -5,7 +5,7 @@ Author/operator: Codex, using local dev Calibration funding credentials
 Network: Filecoin Calibration
 Chain ID: 314159
 FOC environment: Calibration; FOC MCP upload and registry finalization exercised; FOC payment/session-key flows not exercised
-foc-platform commit: pending Worker demo PR; evidence generated from branch `codex/issue-15-worker-calibration-demo`
+foc-platform commit: Worker demo evidence merged to `main`; production hardening tracked by `docs/production-hardening-runbook.md`
 synapse-sdk commit/version: Not exercised
 foc-cli commit/version: Not exercised
 foc-storage-mcp commit/version: Not exercised
@@ -23,6 +23,8 @@ back with matching runtime bytecode, and driven through a root-authorized
 request/start/dataset/finalize flow for one FOC dataset piece. It does not yet
 prove the FOC payment rail, Synapse SDK upload path, real session-key
 coordinator, or expiry/revocation paths required to close the full Phase 0 gate.
+The production operations boundary, smoke baseline, and remaining linked gates
+are maintained in [`docs/production-hardening-runbook.md`](./production-hardening-runbook.md).
 
 ## Final Recommendation
 

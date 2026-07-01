@@ -11,9 +11,12 @@ pnpm test
 pnpm test:admin
 pnpm test:api
 pnpm test:node
+pnpm test:ops
 pnpm test:spine
 pnpm test:tokenhost
 pnpm test:contracts
+pnpm ops:validate
+pnpm ops:smoke -- --iterations 3
 pnpm build:contracts
 pnpm build:artifacts
 pnpm build:tokenhost
@@ -27,6 +30,13 @@ keys, funded wallet material, coordinator session keys, or provider credentials.
 The current CI and baseline tests do not require Filecoin Calibration
 credentials. Any PR that claims real FOC/Calibration execution must include
 transaction hashes or logs and must keep secrets outside the repository.
+
+`pnpm ops:validate` performs the local tracked-file secret scan plus operations
+profile validation. `pnpm ops:smoke -- --iterations 3` runs the deterministic
+route-equivalent API/coordinator smoke baseline. Both are local/mocked and must
+not be used as evidence that live FOC payment, Synapse upload, KMS signing, or a
+hosted session-key coordinator is production-ready. See
+`docs/production-hardening-runbook.md`.
 
 ## Contract Workspace
 
@@ -69,6 +79,15 @@ binding. See `docs/platform-api.md`.
 explicit admin authorization hook. `pnpm test:admin` covers object, usage,
 dataset/provider, coordinator, mismatch, and auth fixtures. See
 `docs/admin-reconciliation.md`.
+
+## Operations Hardening
+
+Issue #16 is tracked by `docs/production-hardening-runbook.md`. The runbook
+documents the root-wallet, session-key, relayer, generated UI, upload endpoint,
+receipt-finalization, and Worker threat model; KMS and secret-management plan;
+rate-limit and timeout baseline; reconciliation workflow; and accepted
+production gates. CI runs `pnpm ops:validate`, `pnpm ops:smoke`, and
+`pnpm worker:dry-run` so docs, config, and the Worker bundle stay aligned.
 
 ## Token Host Demo
 
