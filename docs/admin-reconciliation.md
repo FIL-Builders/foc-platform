@@ -15,12 +15,22 @@ They are route-equivalent modules, not a running admin server:
 
 The platform source of truth is the section 6.7 registry contract:
 
-- objects and statuses from `getStorageObject` or reconstructed
-  `UploadRequested`, `UploadStarted`, `UploadFinalized`, `UploadFailed`,
-  `UploadCancelled`, and `UploadExpired` events;
-- usage counters from `getAccountUsage` or reconstructed usage events;
-- copy, receipt-payer, dataset, coordinator, and relayer state from registry
-  views or events.
+- current object rows from `listStorageObjectIds` or
+  `listAccountObjectIds`, then `getStorageObject`;
+- current account rows from `listAccountIds`, then `getAccountUsage`;
+- current copy, receipt-payer, dataset, coordinator, and relayer rows from
+  `getCopyReceipts`, `receiptPayer`, `listDatasetKeys`,
+  `getDatasetRecord`, `listCoordinatorAddresses`, `coordinatorPolicies`,
+  `listRelayerAddresses`, and `isRelayer`;
+- optional read batching through `readBatch(bytes[] calls)` when a wrapper or
+  Worker needs to group bounded detail reads.
+
+Reconstructed `UploadRequested`, `UploadStarted`, `UploadFinalized`,
+`UploadFailed`, `UploadCancelled`, `UploadExpired`, usage, dataset,
+coordinator, and relayer events remain valid for fixture construction, audit
+history, local demos, and fallback views. They must not be the primary
+current-state source for the final admin dashboard once the direct list/detail
+views are available.
 
 Actual FOC storage/payment facts are authoritative only when supplied from FOC
 contracts, provider-confirmed FOC transactions, datasets, pieces, and payment
@@ -28,8 +38,9 @@ rails. The current helper accepts optional FOC evidence and otherwise reports
 stored objects as `foc_evidence_not_checked`.
 
 Coordinator-private state, platform API caches, generated Token Host CRUD
-state, and local logs are not authoritative. They may help operators navigate a
-demo, but every surfaced claim must be reconstructable from registry state or
+state, event projections, and local logs are not authoritative current
+dashboard storage. They may help operators navigate a demo, but every surfaced
+current-state claim must be reconstructable from direct registry views or
 explicit FOC evidence.
 
 ## Admin Routes
@@ -72,7 +83,9 @@ This is an admin/read scaffold, not production reconciliation automation. Real
 Calibration reconciliation remains gated on Phase 0 evidence and the hosted
 coordinator work: the operator view can report `not_checked`, but it must not
 claim that FOC datasets, pieces, payment rails, or transaction logs were
-verified without supplied evidence.
+verified without supplied evidence. The final dashboard issue must replace the
+current event/read-model projection as the primary current-row path with the
+direct pagination/detail reads described above.
 
 ## Local Commands
 

@@ -46,6 +46,14 @@ before changing or redeploying it. The security and recovery boundary is
 documented in
 [`docs/production-hardening-runbook.md`](./production-hardening-runbook.md).
 
+The current deployed Worker and registry evidence predate the direct pagination
+ABI. They prove the read-only Worker demo and one configured object against the
+then-deployed registry, but they do not prove `listStorageObjectIds`,
+`listAccountIds`, `listDatasetKeys`, `readBatch`, or the direct-onchain admin
+dashboard path. Issue #33 must publish updated evidence from a registry build
+that includes the pagination ABI before the dashboard stack can claim
+end-to-end direct-read proof.
+
 ## Public Endpoints
 
 | Route | Purpose |
@@ -168,4 +176,6 @@ metadata and retrieval URL. The registry receipt therefore records zero
 
 This run still does not prove a real session-key coordinator or expiry/revoke
 path. The local dev root address was allowlisted as coordinator to complete the
-public end-to-end Worker demo.
+public end-to-end Worker demo. It also does not prove the later direct
+pagination/list-read ABI; use it as historical Worker evidence until issue #33
+publishes updated list/detail/dashboard proof.
