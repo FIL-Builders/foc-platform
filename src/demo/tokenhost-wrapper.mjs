@@ -624,11 +624,11 @@ function registrySurfacesForRoute(route) {
     case "objects":
       return { objects: true };
     case "usage":
-      return { accounts: true };
+      return { objects: true, accounts: true };
     case "datasets":
-      return { datasets: true };
+      return { objects: true, datasets: true };
     case "coordinators":
-      return { coordinators: true, relayers: true };
+      return { objects: true, coordinators: true, relayers: true };
     case "dashboard":
     case "reconciliation":
     default:

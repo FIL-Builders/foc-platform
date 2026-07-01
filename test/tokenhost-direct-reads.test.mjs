@@ -140,11 +140,69 @@ test("Token Host direct read adapter honors admin route hints", async () => {
   assert.equal(coordinators.status, 200);
   assert.equal(coordinators.body.coordinators.length, 1);
   assert.equal(coordinators.body.relayers.length, 1);
+  assert.equal(coordinators.body.coordinators[0].objectCount, 2);
+  assert.deepEqual(coordinators.body.coordinators[0].activeObjectIds, ["2"]);
   assert.deepEqual(calls.map((call) => call.functionName), [
+    "listStorageObjectIds",
+    "getStorageObject",
+    "getCopyReceipts",
+    "receiptPayer",
+    "getStorageObject",
+    "getCopyReceipts",
+    "receiptPayer",
+    "listStorageObjectIds",
     "listCoordinatorAddresses",
     "coordinatorPolicies",
     "listRelayerAddresses",
     "isRelayer",
+  ]);
+
+  calls.length = 0;
+  const usage = await api.handle({
+    method: "GET",
+    path: "/admin/storage/usage",
+    headers: {},
+  });
+  assert.equal(usage.status, 200);
+  const accountBUsage = usage.body.usage.find((row) => row.accountId === ACCOUNT_B);
+  assert.equal(accountBUsage.projectedPendingBytes, "1024");
+  assert.deepEqual(calls.map((call) => call.functionName), [
+    "listStorageObjectIds",
+    "getStorageObject",
+    "getCopyReceipts",
+    "receiptPayer",
+    "getStorageObject",
+    "getCopyReceipts",
+    "receiptPayer",
+    "listStorageObjectIds",
+    "listAccountIds",
+    "getAccountUsage",
+    "listAccountObjectIds",
+    "getAccountUsage",
+    "listAccountObjectIds",
+    "listAccountIds",
+  ]);
+
+  calls.length = 0;
+  const datasets = await api.handle({
+    method: "GET",
+    path: "/admin/storage/datasets",
+    headers: {},
+  });
+  assert.equal(datasets.status, 200);
+  assert.equal(datasets.body.datasets[0].copyCount, 1);
+  assert.deepEqual(datasets.body.datasets[0].objectIds, ["1"]);
+  assert.deepEqual(calls.map((call) => call.functionName), [
+    "listStorageObjectIds",
+    "getStorageObject",
+    "getCopyReceipts",
+    "receiptPayer",
+    "getStorageObject",
+    "getCopyReceipts",
+    "receiptPayer",
+    "listStorageObjectIds",
+    "listDatasetKeys",
+    "getDatasetRecord",
   ]);
 
   calls.length = 0;
