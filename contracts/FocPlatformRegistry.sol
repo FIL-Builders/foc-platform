@@ -792,7 +792,10 @@ contract FocPlatformRegistry {
             cursorIdExclusive == 0 ? _activeObjectHead : _activeObjectNext[cursorIdExclusive];
         uint256[] memory page = new uint256[](_min(_activeObjectCount, limit));
         uint256 count;
-        while (currentObjectId != 0 && count < page.length) {
+        uint256 steps;
+        uint256 maxSteps = limit * 4;
+        while (currentObjectId != 0 && count < page.length && steps < maxSteps) {
+            steps += 1;
             if (_activeObjectIndexed[currentObjectId]) {
                 page[count] = currentObjectId;
                 count += 1;
@@ -838,7 +841,10 @@ contract FocPlatformRegistry {
 
         uint256[] memory page = new uint256[](limit);
         uint256 count;
-        while (currentObjectId != 0 && count < limit) {
+        uint256 steps;
+        uint256 maxSteps = limit * 4;
+        while (currentObjectId != 0 && count < limit && steps < maxSteps) {
+            steps += 1;
             if (_activeObjectIndexed[currentObjectId]) {
                 page[count] = currentObjectId;
                 count += 1;
