@@ -20,6 +20,7 @@ const PAYER = "0x0000000000000000000000000000000000003000";
 const ACCOUNT_ID = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const IDEMPOTENCY_KEY = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const CONTENT_HASH = "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+const ZERO_BYTES32 = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
 test("coordinator config rejects raw private key material", () => {
   assert.throws(
@@ -211,6 +212,14 @@ test("upload bytes validate declared size and optional keccak content commitment
       return true;
     },
   );
+  assert.deepEqual(
+    validateUploadBytes({
+      bytes,
+      declaredSize: 4n,
+      contentHash: ZERO_BYTES32,
+    }),
+    bytes,
+  );
 });
 
 test("upload bytes validate identity-bytes32 content commitments", () => {
@@ -246,6 +255,21 @@ test("upload byte validation describes accepted input shapes", () => {
         declaredSize: 4n,
       }),
     /Uint8Array, hex\/text string, or number array/,
+  );
+  assert.throws(
+    () =>
+      validateUploadBytes({
+        bytes: [0, 256],
+        declaredSize: 2n,
+      }),
+    (error) => {
+      assert.equal(error.name, "CoordinatorReceiptError");
+      assert.equal(error.code, "invalid_upload_bytes");
+      assert.match(error.message, /integers from 0 to 255/);
+      assert.equal(error.details.index, 1);
+      assert.equal(error.details.value, 256);
+      return true;
+    },
   );
 });
 

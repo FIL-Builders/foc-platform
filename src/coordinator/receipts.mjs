@@ -1,5 +1,7 @@
 import { bytesToHex, isAddress, keccak256, stringToHex, toBytes } from "viem";
 
+const ZERO_BYTES32 = "0x0000000000000000000000000000000000000000000000000000000000000000";
+
 export const FINALIZATION_STATUS = Object.freeze({
   Committed: 0,
   Partial: 1,
@@ -31,6 +33,7 @@ export function validateUploadBytes({
   contentHashAlgorithm,
 } = {}) {
   const data = normalizeBytes(bytes);
+  const normalizedContentHash = normalizeContentHash(contentHash);
   const size = BigInt(data.byteLength);
   if (size === 0n) {
     throw new CoordinatorReceiptError("empty_upload", "upload bytes are required");
@@ -41,21 +44,21 @@ export function validateUploadBytes({
       actualSize: size.toString(),
     });
   }
-  if (contentHash && !contentHashAlgorithm) {
+  if (normalizedContentHash && !contentHashAlgorithm) {
     throw new CoordinatorReceiptError(
       "missing_content_hash_algorithm",
       "content hash algorithm is required when content hash is declared",
-      { contentHash: String(contentHash).toLowerCase() },
+      { contentHash: normalizedContentHash },
     );
   }
-  if (contentHash && contentHashAlgorithm) {
+  if (normalizedContentHash && contentHashAlgorithm) {
     const actual = hashBytes(data, contentHashAlgorithm);
-    if (actual !== contentHash.toLowerCase()) {
+    if (actual !== normalizedContentHash) {
       throw new CoordinatorReceiptError(
         "content_commitment_mismatch",
         "upload bytes do not match declared content commitment",
         {
-          contentHash: contentHash.toLowerCase(),
+          contentHash: normalizedContentHash,
           actual,
           contentHashAlgorithm,
         },
@@ -187,7 +190,18 @@ function normalizeCopies(copies) {
 function normalizeBytes(bytes) {
   if (bytes instanceof Uint8Array) return bytes;
   if (typeof bytes === "string") return toBytes(bytes);
-  if (Array.isArray(bytes)) return Uint8Array.from(bytes);
+  if (Array.isArray(bytes)) {
+    bytes.forEach((byte, index) => {
+      if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+        throw new CoordinatorReceiptError(
+          "invalid_upload_bytes",
+          "number-array upload bytes must contain integers from 0 to 255",
+          { index, value: byte },
+        );
+      }
+    });
+    return Uint8Array.from(bytes);
+  }
   throw new CoordinatorReceiptError(
     "invalid_upload_bytes",
     "upload bytes must be Uint8Array, hex/text string, or number array",
@@ -211,6 +225,12 @@ function hashBytes(bytes, algorithm) {
     "unsupported content hash algorithm",
     { algorithm },
   );
+}
+
+function normalizeContentHash(contentHash) {
+  if (contentHash === undefined || contentHash === null || contentHash === "") return undefined;
+  const normalized = String(contentHash).toLowerCase();
+  return normalized === ZERO_BYTES32 ? undefined : normalized;
 }
 
 function deriveReceiptHash(payload) {
