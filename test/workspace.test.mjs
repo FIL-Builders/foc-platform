@@ -10,6 +10,7 @@ test("package scripts expose the baseline workspace commands", async () => {
   assert.match(pkg.scripts.lint, /check-workspace/);
   assert.match(pkg.scripts["build:artifacts"], /generate-registry-artifacts/);
   assert.match(pkg.scripts["test:contracts"], /forge test/);
+  assert.match(pkg.scripts["test:spine"], /dev-upload-spine/);
 });
 
 test("environment example documents secret placeholders without committing secrets", async () => {

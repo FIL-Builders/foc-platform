@@ -10,7 +10,8 @@
     "lint": "node scripts/check-workspace.mjs",
     "test": "pnpm test:node && pnpm test:contracts",
     "test:contracts": "forge test",
-    "test:node": "node --test"
+    "test:node": "node --test",
+    "test:spine": "node --test test/dev-upload-spine.test.mjs"
   },
   "dependencies": {
     "viem": "^2.54.1"
