@@ -343,7 +343,7 @@ function validateRegistryRequest(prepared, object) {
   compareRegistryUint(mismatches, object, prepared.request, "size");
   compareRegistryUint(mismatches, object, prepared.request, "requestedCopies");
   compareRegistryUint(mismatches, object, prepared.request, "maxCost");
-  compareRegistryUint(mismatches, object, prepared.request, "requestExpiresAt");
+  compareRegistryRequestExpiry(mismatches, object, prepared.request);
   compareRegistryBoolean(mismatches, object, prepared.request, "withCDN");
   compareRegistryContentHash(mismatches, object, prepared.request);
   compareRegistryString(mismatches, object, prepared.request, "contentHashAlgorithm");
@@ -381,6 +381,26 @@ function compareRegistryBoolean(mismatches, object, request, field) {
     registry: String(Boolean(object[field])),
     request: String(Boolean(request[field])),
   });
+}
+
+function compareRegistryRequestExpiry(mismatches, object, request) {
+  if (!hasRegistryField(object, "requestExpiresAt")) return;
+  if (usesRegistryDefaultExpiry(request?.requestExpiresAt)) return;
+  if (equalUint(object.requestExpiresAt, request.requestExpiresAt)) return;
+  mismatches.push({
+    field: "requestExpiresAt",
+    registry: String(object.requestExpiresAt),
+    request: String(request.requestExpiresAt),
+  });
+}
+
+function usesRegistryDefaultExpiry(value) {
+  if (value === undefined || value === null || value === "") return true;
+  try {
+    return BigInt(value) === 0n;
+  } catch {
+    return false;
+  }
 }
 
 function compareRegistryContentHash(mismatches, object, request) {
