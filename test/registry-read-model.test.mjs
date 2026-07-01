@@ -220,6 +220,59 @@ test("applyRegistryEvents reconstructs committed object, usage, copy, and payer 
   assert.equal(model.idempotency[`${ACCOUNT_ID}:${IDEMPOTENCY_KEY}`], "1");
 });
 
+test("applyRegistryEvents sorts positioned logs by block number and log index", () => {
+  const events = [
+    decodeRegistryLog(
+      encodeLog("UploadCancelled", { objectId: 6n, accountId: ACCOUNT_ID }, [], {
+        blockNumber: 300n,
+        blockTimestamp: 303n,
+        logIndex: 3n,
+      }),
+    ),
+    decodeRegistryLog(
+      encodeLog("UsageReleased", { accountId: ACCOUNT_ID, objectId: 6n }, [9n], {
+        blockNumber: 300n,
+        blockTimestamp: 302n,
+        logIndex: 2n,
+      }),
+    ),
+    decodeRegistryLog(
+      encodeLog(
+        "UploadRequested",
+        { objectId: 6n, accountId: ACCOUNT_ID, user: USER },
+        [hex32("16"), CONTENT_HASH, METADATA_HASH, 256n, 2, false, 9n, 5000n],
+        { blockNumber: 300n, blockTimestamp: 301n, logIndex: 1n },
+      ),
+    ),
+    decodeRegistryLog(
+      encodeLog("UsageReserved", { accountId: ACCOUNT_ID, objectId: 6n }, [9n, 0n], {
+        blockNumber: 300n,
+        blockTimestamp: 300n,
+        logIndex: 0n,
+      }),
+    ),
+  ];
+
+  const model = applyRegistryEvents(events);
+
+  assert.equal(model.objects["6"].status, "Cancelled");
+  assert.equal(model.objects["6"].createdAt, "301");
+  assert.equal(model.objects["6"].updatedAt, "303");
+  assert.deepEqual(model.usage[ACCOUNT_ID], {
+    activeBytes: "0",
+    activeObjects: "0",
+    pendingBytes: "0",
+    reservedCost: "0",
+    totalActualCost: "0",
+    totalUploadedBytes: "0",
+    totalRequestedUploads: "1",
+    totalFinalizedUploads: "0",
+    totalFailedUploads: "0",
+    lastActiveBytesBeforeReservation: "0",
+    lastReleasedCost: "9",
+  });
+});
+
 test("applyRegistryEvents reconstructs coordinator, relayer, and dataset state", () => {
   const permissionsHash = hex32("0b");
   const events = [
@@ -382,6 +435,20 @@ test("applyRegistryEvents handles failed, cancelled, expired, and failed-finaliz
     lastActiveBytesBeforeReservation: "0",
     lastReleasedCost: "8",
   });
+});
+
+test("applyRegistryEvents clamps release counters for partial histories", () => {
+  const events = [
+    decodeRegistryLog(
+      encodeLog("UsageReleased", { accountId: ACCOUNT_ID, objectId: 99n }, [25n]),
+    ),
+  ];
+
+  const model = applyRegistryEvents(events);
+
+  assert.equal(model.usage[ACCOUNT_ID].reservedCost, "0");
+  assert.equal(model.usage[ACCOUNT_ID].pendingBytes, "0");
+  assert.equal(model.usage[ACCOUNT_ID].lastReleasedCost, "25");
 });
 
 function encodeLog(eventName, indexedArgs, dataArgs, metadata = {}) {

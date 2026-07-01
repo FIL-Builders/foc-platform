@@ -74,12 +74,16 @@ exact current state matters.
 
 - Object `createdAt` and `updatedAt` are populated only when decoded logs carry
   `blockTimestamp`. Without timestamp-enriched logs, call `registryObjectRead`.
+- When every decoded event carries `blockNumber` and `logIndex`,
+  `applyRegistryEvents` sorts by those fields before projection. If any event is
+  missing those fields, the caller-provided order is preserved.
 - `DatasetRecorded` does not emit `createdAt`. The projection records
   `updatedAt` only when `blockTimestamp` is supplied; exact dataset timestamps
   require `registryDatasetRecordRead`.
 - Pending byte release is reconstructed from `UsageReleased` plus the known
   object request shape. If an indexer ingests release events without the matching
-  request events, refresh usage through `registryUsageRead`.
+  request events, release counters clamp at zero and callers should refresh
+  usage through `registryUsageRead`.
 - `CoordinatorPolicy.permissionsHash` is audit/reconciliation metadata in v1.
   The registry enforces coordinator `allowed` and `sessionKeyExpiresAt`; FOC
   session-key permission checks are external to this registry.

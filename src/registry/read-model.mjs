@@ -81,7 +81,7 @@ export function createRegistryReadModel() {
 }
 
 export function applyRegistryEvents(events, model = createRegistryReadModel()) {
-  for (const event of events) {
+  for (const event of orderedRegistryEvents(events)) {
     applyRegistryEvent(model, event);
   }
   return model;
@@ -376,7 +376,44 @@ function add(current, value) {
 }
 
 function subtract(current, value) {
-  return (bigint(current) - bigint(value)).toString();
+  const result = bigint(current) - bigint(value);
+  return (result < 0n ? 0n : result).toString();
+}
+
+function orderedRegistryEvents(events) {
+  const list = Array.from(events);
+  if (!list.every(hasLogPosition)) return list;
+
+  return list
+    .map((event, index) => ({ event, index }))
+    .sort(
+      (left, right) => compareLogPosition(left.event, right.event) || left.index - right.index,
+    )
+    .map(({ event }) => event);
+}
+
+function hasLogPosition(event) {
+  return (
+    event?.blockNumber !== undefined &&
+    event.blockNumber !== null &&
+    event?.logIndex !== undefined &&
+    event.logIndex !== null
+  );
+}
+
+function compareLogPosition(left, right) {
+  return (
+    compareBigint(left.blockNumber, right.blockNumber) ||
+    compareBigint(left.logIndex, right.logIndex)
+  );
+}
+
+function compareBigint(left, right) {
+  const leftValue = bigint(left);
+  const rightValue = bigint(right);
+  if (leftValue < rightValue) return -1;
+  if (leftValue > rightValue) return 1;
+  return 0;
 }
 
 function lower(address) {
