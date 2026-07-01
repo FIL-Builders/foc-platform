@@ -193,14 +193,27 @@ test("Calibration registry runner treats blank demo ID env vars as unset", async
 
 test("Calibration registry runner preserves prior transaction hashes on rerun", async () => {
   const runner = await import(`../scripts/run-calibration-registry-demo.mjs?tx=${Date.now()}`);
-
-  assert.deepEqual(
-    runner.mergeRegistryTxHashes(
-      {
+  const idempotencyKey = `0x${"66".repeat(32)}`;
+  const evidence = {
+    demo: {
+      objectId: "42",
+      accountId: ACCOUNT_ID,
+      request: { idempotencyKey },
+      registryTxHashes: {
         requestUpload: `0x${"11".repeat(32)}`,
         startUpload: `0x${"22".repeat(32)}`,
         finalizeUpload: `0x${"33".repeat(32)}`,
       },
+    },
+  };
+
+  assert.deepEqual(
+    runner.mergeRegistryTxHashes(
+      runner.reusableRegistryTxHashesFromEvidence(evidence, {
+        objectId: 42n,
+        accountId: ACCOUNT_ID,
+        idempotencyKey,
+      }),
       {
         recordDataset: `0x${"44".repeat(32)}`,
         finalizeUpload: `0x${"55".repeat(32)}`,
@@ -212,5 +225,30 @@ test("Calibration registry runner preserves prior transaction hashes on rerun", 
       recordDataset: `0x${"44".repeat(32)}`,
       finalizeUpload: `0x${"55".repeat(32)}`,
     },
+  );
+
+  assert.deepEqual(
+    runner.reusableRegistryTxHashesFromEvidence(evidence, {
+      objectId: 43n,
+      accountId: ACCOUNT_ID,
+      idempotencyKey,
+    }),
+    {},
+  );
+  assert.deepEqual(
+    runner.reusableRegistryTxHashesFromEvidence(evidence, {
+      objectId: 42n,
+      accountId: `0x${"34".repeat(32)}`,
+      idempotencyKey,
+    }),
+    {},
+  );
+  assert.deepEqual(
+    runner.reusableRegistryTxHashesFromEvidence(evidence, {
+      objectId: 42n,
+      accountId: ACCOUNT_ID,
+      idempotencyKey: `0x${"77".repeat(32)}`,
+    }),
+    {},
   );
 });

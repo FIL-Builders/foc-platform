@@ -192,7 +192,14 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
   ]);
 
   const registryTxHashes = write
-    ? mergeRegistryTxHashes(await readExistingRegistryTxHashes(config.evidencePath), txHashes)
+    ? mergeRegistryTxHashes(
+        await readReusableExistingRegistryTxHashes(config.evidencePath, {
+          objectId,
+          accountId: config.accountId,
+          idempotencyKey: config.idempotencyKey,
+        }),
+        txHashes,
+      )
     : txHashes;
 
   const evidence = buildEvidence({
@@ -384,14 +391,30 @@ export function mergeRegistryTxHashes(existing = {}, current = {}) {
   };
 }
 
-async function readExistingRegistryTxHashes(evidencePath) {
+async function readReusableExistingRegistryTxHashes(evidencePath, expectedIdentity) {
   try {
     const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
-    return evidence?.demo?.registryTxHashes ?? {};
+    return reusableRegistryTxHashesFromEvidence(evidence, expectedIdentity);
   } catch (error) {
     if (error?.code === "ENOENT") return {};
     throw error;
   }
+}
+
+export function reusableRegistryTxHashesFromEvidence(evidence = {}, expectedIdentity = {}) {
+  const txHashes = compactStringRecord(evidence?.demo?.registryTxHashes);
+  if (Object.keys(txHashes).length === 0) return {};
+  if (!matchesDemoEvidenceIdentity(evidence, expectedIdentity)) return {};
+  return txHashes;
+}
+
+function matchesDemoEvidenceIdentity(evidence, expectedIdentity) {
+  return (
+    identityPart(evidence?.demo?.objectId) === identityPart(expectedIdentity.objectId) &&
+    identityPart(evidence?.demo?.accountId) === identityPart(expectedIdentity.accountId) &&
+    identityPart(evidence?.demo?.request?.idempotencyKey) ===
+      identityPart(expectedIdentity.idempotencyKey)
+  );
 }
 
 async function assertOwner({ publicClient, config }) {
@@ -561,6 +584,10 @@ function compactStringRecord(value) {
       .map(([key, item]) => [key, String(item ?? "").trim()])
       .filter(([, item]) => item !== ""),
   );
+}
+
+function identityPart(value) {
+  return String(value ?? "").trim().toLowerCase();
 }
 
 function stableJson(value) {
