@@ -6,7 +6,10 @@ const requiredFiles = [
   "foundry.toml",
   "package.json",
   ".env.example",
+  "docs/registry.md",
+  "contracts/FocPlatformRegistry.sol",
   "contracts/WorkspaceSentinel.sol",
+  "test/contracts/FocPlatformRegistry.t.sol",
   "test/contracts/WorkspaceSentinel.t.sol",
   "test/workspace.test.mjs",
 ];

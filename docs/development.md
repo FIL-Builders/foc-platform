@@ -25,6 +25,9 @@ transaction hashes or logs and must keep secrets outside the repository.
 ## Contract Workspace
 
 `contracts/WorkspaceSentinel.sol` is only a compile sentinel for the initial
-workspace scaffold. The production `FocPlatformRegistry` contract is tracked by
-issue #8 and must preserve the lifecycle, access-control, idempotency, receipt,
-and accounting semantics in `spec.md` section 6.7.
+workspace scaffold.
+
+`contracts/FocPlatformRegistry.sol` is the production v1 registry surface
+tracked by issue #8. It must preserve the lifecycle, access-control,
+idempotency, receipt, and accounting semantics in `spec.md` section 6.7. See
+`docs/registry.md` for the current invariant and deferred-semantics notes.
