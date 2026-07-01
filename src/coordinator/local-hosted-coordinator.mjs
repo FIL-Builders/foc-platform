@@ -205,6 +205,14 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
       sessionKey: publicSessionKey(sessionKey),
     });
   } catch (error) {
+    const recovered = await recoverFinalizedUpload({
+      prepared,
+      registry,
+      receipt,
+      config,
+      error,
+    });
+    if (recovered) return recovered;
     throw new HostedCoordinatorError(
       "finalize_upload_failed",
       "registry finalization failed after FOC upload; retry without failing upload",
@@ -217,17 +225,44 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
     );
   }
 
-  return Object.freeze({
+  return Object.freeze(uploadResult({ prepared, receipt, registryResult: finalizeResult, config }));
+}
+
+function uploadResult({ prepared, receipt, registryResult, config }) {
+  return {
     objectId: String(prepared.objectId),
     status: receipt.finalizationStatusLabel,
     receipt,
-    registry: finalizeResult,
+    registry: registryResult,
     mocked: {
       focBytesMoved: false,
       runner: config.runner,
       boundary: "local hosted coordinator with injected FOC adapter",
     },
-  });
+  };
+}
+
+async function recoverFinalizedUpload({ prepared, registry, receipt, config, error }) {
+  let latestObject;
+  try {
+    latestObject = await readUploadObject(registry, prepared);
+  } catch {
+    return undefined;
+  }
+  if (latestObject?.status !== receipt.finalizationStatusLabel) return undefined;
+  return Object.freeze(
+    uploadResult({
+      prepared,
+      receipt,
+      registryResult: {
+        recoveredAfterFinalizeError: true,
+        object: latestObject,
+        sourceCode: error?.code,
+        sourceMessage: error?.message,
+      },
+      config,
+    }),
+  );
 }
 
 async function startOrResumeUploading({ prepared, registry, sessionKey }) {

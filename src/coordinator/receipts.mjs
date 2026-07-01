@@ -110,19 +110,19 @@ export function mapSynapseResultToUploadReceipt({
     result.pieceCidHash ?? hashText(`piece-cid:${result.pieceCid ?? ""}`),
     "pieceCidHash",
   );
+  const fallbackReceiptHash = deriveReceiptHash({
+    receiptSalt,
+    request,
+    payer,
+    pieceCidHash,
+    requestedCopies,
+    completedCopies,
+    actualCost,
+    copies,
+    source: result.source ?? "simulated-synapse",
+  });
   const receiptHash = normalizeBytes32(
-    result.receiptHash ??
-      deriveReceiptHash({
-        receiptSalt,
-        request,
-        payer,
-        pieceCidHash,
-        requestedCopies,
-        completedCopies,
-        actualCost,
-        copies,
-        source: result.source ?? "simulated-synapse",
-      }),
+    missingBytes32(result.receiptHash) ? fallbackReceiptHash : result.receiptHash,
     "receiptHash",
   );
 
@@ -289,6 +289,15 @@ function normalizeContentHash(contentHash, contentHashAlgorithm) {
   if (contentHash === undefined || contentHash === null || contentHash === "") return undefined;
   const normalized = String(contentHash).toLowerCase();
   return !contentHashAlgorithm && normalized === ZERO_BYTES32 ? undefined : normalized;
+}
+
+function missingBytes32(value) {
+  return (
+    value === undefined ||
+    value === null ||
+    value === "" ||
+    String(value).toLowerCase() === ZERO_BYTES32
+  );
 }
 
 function deriveReceiptHash(payload) {

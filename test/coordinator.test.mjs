@@ -230,6 +230,32 @@ test("receipt hash is canonical across object key insertion order", () => {
   assert.equal(receiptA.receiptHash, receiptB.receiptHash);
 });
 
+test("receipt mapping treats zero receipt hashes as missing", () => {
+  const request = requestFixture({ size: 4n, requestedCopies: 1 });
+  const result = {
+    actualCost: 7n,
+    completedCopies: 1,
+    pieceCid: "baga6ea4seaqtest",
+    copies: [copyFixture()],
+  };
+  const fallbackReceipt = mapSynapseResultToUploadReceipt({
+    payer: PAYER,
+    request,
+    result,
+  });
+  const zeroReceipt = mapSynapseResultToUploadReceipt({
+    payer: PAYER,
+    request,
+    result: {
+      ...result,
+      receiptHash: ZERO_BYTES32,
+    },
+  });
+
+  assert.notEqual(zeroReceipt.receiptHash, ZERO_BYTES32);
+  assert.equal(zeroReceipt.receiptHash, fallbackReceipt.receiptHash);
+});
+
 test("receipt mapping rejects completed copy count mismatches", () => {
   assert.throws(
     () =>
@@ -857,6 +883,42 @@ test("local hosted coordinator does not failUpload after post-FOC finalize error
   assert.equal(finalizeAttempts, 2);
   assert.equal(registry.failCalls.length, 0);
   assert.equal(uploadCalls.length, 2);
+});
+
+test("local hosted coordinator recovers ambiguous successful finalization without reuploading", async () => {
+  const registry = createRegistry();
+  const uploadCalls = [];
+  const finalizeError = new Error("finalize confirmation timeout");
+  finalizeError.code = "finalize_timeout";
+  const finalizeUpload = registry.finalizeUpload;
+  registry.finalizeUpload = async function finalizeThenTimeout(args) {
+    await finalizeUpload.call(this, args);
+    throw finalizeError;
+  };
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+  const request = requestFixture({ size: 4n });
+
+  const result = await coordinator.executeUpload({
+    objectId: 1n,
+    request,
+    bytes: new Uint8Array([1, 2, 3, 4]),
+  });
+  const replay = await coordinator.executeUpload({
+    objectId: 1n,
+    request,
+    bytes: new Uint8Array([1, 2, 3, 4]),
+  });
+
+  assert.equal(result.status, "Committed");
+  assert.equal(result.registry.recoveredAfterFinalizeError, true);
+  assert.equal(result.registry.sourceCode, "finalize_timeout");
+  assert.equal(replay, result);
+  assert.equal(registry.finalizeCalls.length, 1);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 1);
 });
 
 test("local hosted coordinator does not failUpload an already terminal object", async () => {
