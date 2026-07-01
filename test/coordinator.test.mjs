@@ -240,6 +240,22 @@ test("upload bytes validate declared size and optional keccak content commitment
     }),
     bytes,
   );
+  assert.throws(
+    () =>
+      validateUploadBytes({
+        bytes,
+        declaredSize: 4n,
+        contentHash: ZERO_BYTES32,
+        contentHashAlgorithm: "keccak256",
+      }),
+    (error) => {
+      assert.equal(error.name, "CoordinatorReceiptError");
+      assert.equal(error.code, "content_commitment_mismatch");
+      assert.equal(error.details.contentHash, ZERO_BYTES32);
+      assert.equal(error.details.contentHashAlgorithm, "keccak256");
+      return true;
+    },
+  );
 });
 
 test("upload bytes validate identity-bytes32 content commitments", () => {
@@ -254,6 +270,32 @@ test("upload bytes validate identity-bytes32 content commitments", () => {
       contentHashAlgorithm: "identity-bytes32",
     }),
     bytes,
+  );
+  assert.deepEqual(
+    validateUploadBytes({
+      bytes: new Uint8Array(32),
+      declaredSize: 32n,
+      contentHash: ZERO_BYTES32,
+      contentHashAlgorithm: "identity-bytes32",
+    }),
+    new Uint8Array(32),
+  );
+  assert.throws(
+    () =>
+      validateUploadBytes({
+        bytes,
+        declaredSize: 32n,
+        contentHash: ZERO_BYTES32,
+        contentHashAlgorithm: "identity-bytes32",
+      }),
+    (error) => {
+      assert.equal(error.name, "CoordinatorReceiptError");
+      assert.equal(error.code, "content_commitment_mismatch");
+      assert.equal(error.details.contentHash, ZERO_BYTES32);
+      assert.equal(error.details.actual, contentHash);
+      assert.equal(error.details.contentHashAlgorithm, "identity-bytes32");
+      return true;
+    },
   );
   assert.throws(
     () =>

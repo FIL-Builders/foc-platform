@@ -33,7 +33,7 @@ export function validateUploadBytes({
   contentHashAlgorithm,
 } = {}) {
   const data = normalizeBytes(bytes);
-  const normalizedContentHash = normalizeContentHash(contentHash);
+  const normalizedContentHash = normalizeContentHash(contentHash, contentHashAlgorithm);
   const size = BigInt(data.byteLength);
   if (size === 0n) {
     throw new CoordinatorReceiptError("empty_upload", "upload bytes are required");
@@ -235,10 +235,10 @@ function hashBytes(bytes, algorithm) {
   );
 }
 
-function normalizeContentHash(contentHash) {
+function normalizeContentHash(contentHash, contentHashAlgorithm) {
   if (contentHash === undefined || contentHash === null || contentHash === "") return undefined;
   const normalized = String(contentHash).toLowerCase();
-  return normalized === ZERO_BYTES32 ? undefined : normalized;
+  return !contentHashAlgorithm && normalized === ZERO_BYTES32 ? undefined : normalized;
 }
 
 function deriveReceiptHash(payload) {
