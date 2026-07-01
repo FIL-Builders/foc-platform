@@ -782,6 +782,26 @@ GET  /storage/usage/:accountId
 
 Status and read endpoints are indexer/API conveniences. Their data MUST be reconstructable from contract views and events.
 
+Read-only operator/admin routes MAY be exposed by a platform wrapper or Token Host generated surface:
+
+```http
+GET /admin/storage/dashboard
+GET /admin/storage/objects
+GET /admin/storage/objects/:objectId
+GET /admin/storage/usage
+GET /admin/storage/datasets
+GET /admin/storage/coordinators
+GET /admin/storage/reconciliation
+```
+
+These routes MUST require explicit admin authorization, MUST NOT reuse
+end-user object-ownership checks as their authorization model, and MUST remain
+read-only unless a later spec revision defines admin mutation semantics. Their
+platform state MUST come from contract views or reconstructed registry events.
+FOC storage/payment facts MUST be supplied by FOC contracts, provider-confirmed
+transactions, datasets, pieces, or payment rails; otherwise reconciliation
+surfaces must report the FOC side as not checked.
+
 ## 7. FOC Session-Key Primitive
 
 Synapse / FOC includes an onchain **SessionKeyRegistry** and SDK support for temporary delegated signing keys. This primitive is important for `foc-platform` because it already solves part of the problem this stack needs: a root identity can authorize another key to perform a limited set of FOC storage operations for a bounded time window.
@@ -1879,6 +1899,13 @@ Token Host Builder SHOULD emit:
 - object detail with PieceCID/provider/dataset receipts.
 
 The first useful admin surface should not wait for all production contract generation. It can read a hand-written `FocPlatformRegistry` ABI and generated manifest metadata while builder work continues toward a custom FOC module.
+
+The current wrapper-mode implementation exposes these admin concepts through
+`src/admin/reconciliation.mjs`, `src/api/platform-admin-api.mjs`, and Token Host
+wrapper manifest metadata. This is sufficient for demo/read surfaces and
+mismatch fixtures, but it is not production reconciliation automation until the
+FOC evidence side is connected to real Calibration datasets, pieces, payment
+rails, and transaction logs.
 
 ### 10.6 Upload adapter and coordinator evolution
 

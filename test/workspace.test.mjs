@@ -10,6 +10,8 @@ test("package scripts expose the baseline workspace commands", async () => {
   assert.match(pkg.scripts.lint, /check-workspace/);
   assert.match(pkg.scripts["build:artifacts"], /generate-registry-artifacts/);
   assert.match(pkg.scripts["build:tokenhost"], /tokenhost-wrapper/);
+  assert.match(pkg.scripts["test:admin"], /admin-reconciliation/);
+  assert.match(pkg.scripts["test:admin"], /platform-admin-api/);
   assert.match(pkg.scripts["test:api"], /platform-api/);
   assert.match(pkg.scripts["test:contracts"], /forge test/);
   assert.match(pkg.scripts["test:spine"], /dev-upload-spine/);

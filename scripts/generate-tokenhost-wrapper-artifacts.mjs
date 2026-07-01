@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
+import { PLATFORM_ADMIN_API_ROUTES } from "../src/api/platform-admin-api.mjs";
 import { PLATFORM_API_ROUTES } from "../src/api/platform-api.mjs";
 
 const schemaPath = new URL("../apps/tokenhost-foc-platform/schema.json", import.meta.url);
@@ -22,7 +23,8 @@ const schema = JSON.parse(schemaText);
 const config = JSON.parse(configText);
 const registryArtifact = JSON.parse(registryText);
 
-assertRoutesMatch(config.platformApi.routes, PLATFORM_API_ROUTES);
+assertRoutesMatch(config.platformApi.routes, PLATFORM_API_ROUTES, "platformApi");
+assertRoutesMatch(config.adminApi.routes, PLATFORM_ADMIN_API_ROUTES, "adminApi");
 assertRegistryFunctions(registryArtifact.abi);
 
 const manifest = {
@@ -63,6 +65,12 @@ const manifest = {
     routes: PLATFORM_API_ROUTES,
     auth: config.platformApi.auth,
   },
+  adminApi: {
+    sourcePath: config.adminApi.sourcePath,
+    projectionPath: config.adminApi.projectionPath,
+    routes: PLATFORM_ADMIN_API_ROUTES,
+    auth: config.adminApi.auth,
+  },
   tokenHostRuntime: config.tokenHostRuntime,
   screens: config.screens,
   boundaries: config.boundaries,
@@ -74,9 +82,9 @@ await writeFile(outputPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
 console.log(`wrote ${outputPath.pathname}`);
 
-function assertRoutesMatch(configRoutes, apiRoutes) {
+function assertRoutesMatch(configRoutes, apiRoutes, label) {
   if (JSON.stringify(configRoutes) !== JSON.stringify(apiRoutes)) {
-    throw new Error("Token Host wrapper config routes drifted from PLATFORM_API_ROUTES");
+    throw new Error(`Token Host wrapper config ${label} routes drifted from exported routes`);
   }
 }
 

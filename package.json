@@ -10,6 +10,7 @@
     "build:tokenhost": "node scripts/generate-tokenhost-wrapper-artifacts.mjs",
     "lint": "node scripts/check-workspace.mjs",
     "test": "pnpm test:node && pnpm test:contracts",
+    "test:admin": "node --test test/admin-reconciliation.test.mjs test/platform-admin-api.test.mjs",
     "test:api": "node --test test/platform-api.test.mjs",
     "test:contracts": "forge test",
     "test:node": "node --test",
