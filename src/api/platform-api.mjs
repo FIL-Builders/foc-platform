@@ -4,6 +4,7 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const DEFAULT_ACCOUNT_NAMESPACE = "foc-platform:v1:demo";
 const UINT64_MAX = (1n << 64n) - 1n;
 const UINT256_MAX = (1n << 256n) - 1n;
+const CONTENT_HASH_ALGORITHMS = Object.freeze(new Set(["keccak256", "identity-bytes32"]));
 
 export const PLATFORM_API_ROUTES = Object.freeze({
   createUpload: ["POST /storage/upload-requests", "POST /storage/upload"],
@@ -79,6 +80,27 @@ export function normalizeBytes32(value, label) {
     throw new PlatformApiError(400, `invalid_${label}`, `${label} must be a string or bytes32`);
   }
   return keccak256(stringToHex(`foc-platform-${label}:v1:${value}`));
+}
+
+export function normalizeContentHashAlgorithm(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string") {
+    throw new PlatformApiError(
+      400,
+      "invalid_content_hash_algorithm",
+      "contentHashAlgorithm must be a string",
+    );
+  }
+  const normalized = value.toLowerCase();
+  if (!CONTENT_HASH_ALGORITHMS.has(normalized)) {
+    throw new PlatformApiError(
+      400,
+      "unsupported_content_hash_algorithm",
+      "contentHashAlgorithm is not supported",
+      { algorithm: normalized },
+    );
+  }
+  return normalized;
 }
 
 export function createPlatformApi({
@@ -374,6 +396,7 @@ function normalizeUploadRequest(body, headers, account) {
       body.idempotencyKey ?? header(headers, "idempotency-key"),
     ),
     contentHash: normalizeBytes32(body.contentHash, "content_hash"),
+    contentHashAlgorithm: normalizeContentHashAlgorithm(body.contentHashAlgorithm),
     metadataHash: normalizeBytes32(body.metadataHash, "metadata_hash"),
     size: size.toString(),
     requestedCopies,

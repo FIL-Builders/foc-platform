@@ -30,6 +30,7 @@ test("POST /storage/upload creates an opaque-account upload request", async () =
     body: {
       idempotencyKey: "avatar-upload",
       contentHash: "hello-content",
+      contentHashAlgorithm: "keccak256",
       metadataHash: "hello-metadata",
       size: 1024,
       requestedCopies: 2,
@@ -45,6 +46,7 @@ test("POST /storage/upload creates an opaque-account upload request", async () =
   assert.notEqual(response.body.request.accountId, "user@example.com");
   assert.equal(response.body.links.uploadBytes, "/storage/uploads/1/bytes");
   assert.equal(registry.createCalls[0].request.accountId, response.body.request.accountId);
+  assert.equal(registry.createCalls[0].request.contentHashAlgorithm, "keccak256");
   assert.equal(registry.createCalls[0].request.user, WALLET);
 });
 
@@ -98,6 +100,13 @@ test("create upload rejects malformed boundary inputs before adapter work", asyn
       requestExpiresAt: "1.5",
     },
   });
+  const unsupportedHashAlgorithm = await api.handle({
+    ...createUploadRequest({ idempotencyKey: "bad-content-hash-algorithm" }),
+    body: {
+      ...createUploadRequest({ idempotencyKey: "bad-content-hash-algorithm" }).body,
+      contentHashAlgorithm: "sha256",
+    },
+  });
 
   assert.equal(badIdempotency.status, 400);
   assert.equal(badIdempotency.body.error.code, "invalid_idempotency_key");
@@ -107,6 +116,8 @@ test("create upload rejects malformed boundary inputs before adapter work", asyn
   assert.equal(negativeCost.body.error.code, "invalid_maxCost");
   assert.equal(fractionalExpiry.status, 400);
   assert.equal(fractionalExpiry.body.error.code, "invalid_requestExpiresAt");
+  assert.equal(unsupportedHashAlgorithm.status, 400);
+  assert.equal(unsupportedHashAlgorithm.body.error.code, "unsupported_content_hash_algorithm");
   assert.equal(registry.createCalls.length, 0);
 });
 
@@ -403,6 +414,7 @@ function createMemoryRegistry() {
         user: account.user,
         idempotencyKey: request.idempotencyKey,
         contentHash: request.contentHash,
+        contentHashAlgorithm: request.contentHashAlgorithm,
         metadataHash: request.metadataHash,
         size: request.size,
         requestedCopies: request.requestedCopies,

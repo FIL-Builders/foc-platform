@@ -89,11 +89,17 @@ export function createLocalHostedCoordinator({
 function prepareInput(input = {}, config, sessionKey, clock) {
   const objectId = required(input.objectId, "objectId");
   const request = required(input.request, "request");
+  const contentHashAlgorithm = input.contentHashAlgorithm ?? request.contentHashAlgorithm;
   const bytes = validateUploadBytes({
     bytes: input.bytes,
     declaredSize: request.size,
-    contentHash: input.contentHash ?? request.contentHash,
-    contentHashAlgorithm: input.contentHashAlgorithm ?? request.contentHashAlgorithm,
+    contentHash:
+      input.contentHash !== undefined
+        ? input.contentHash
+        : contentHashAlgorithm
+          ? request.contentHash
+          : undefined,
+    contentHashAlgorithm,
   });
 
   if (config.maxBytes !== undefined && BigInt(bytes.byteLength) > config.maxBytes) {

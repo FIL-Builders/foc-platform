@@ -323,6 +323,53 @@ test("local hosted coordinator starts and finalizes through injected adapters", 
   assert.equal(first.mocked.focBytesMoved, false);
 });
 
+test("local hosted coordinator validates request content hash when algorithm is available", async () => {
+  const registry = createRegistry();
+  const bytes = new Uint8Array([1, 2, 3, 4]);
+  const uploadCalls = [];
+  const request = requestFixture({
+    size: 4n,
+    contentHash: keccak256(bytes),
+    contentHashAlgorithm: "keccak256",
+  });
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+
+  const result = await coordinator.executeUpload({
+    objectId: 1n,
+    request,
+    bytes,
+  });
+
+  assert.equal(result.status, "Committed");
+  assert.equal(uploadCalls.length, 1);
+  assert.equal(uploadCalls[0].request.contentHashAlgorithm, "keccak256");
+});
+
+test("local hosted coordinator treats stored content hash as opaque without algorithm", async () => {
+  const registry = createRegistry();
+  const uploadCalls = [];
+  const request = requestFixture({
+    size: 4n,
+    contentHash: CONTENT_HASH,
+  });
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+
+  const result = await coordinator.executeUpload({
+    objectId: 1n,
+    request,
+    bytes: new Uint8Array([1, 2, 3, 4]),
+  });
+
+  assert.equal(result.status, "Committed");
+  assert.equal(uploadCalls.length, 1);
+});
+
 test("local hosted coordinator uploads the validated byte snapshot", async () => {
   const registry = createRegistry();
   const bytes = new Uint8Array([1, 2, 3, 4]);
@@ -537,12 +584,18 @@ function createCoordinator({ registry = createRegistry(), focClient = createFocC
   });
 }
 
-function requestFixture({ size = 4n, requestedCopies = 2 } = {}) {
+function requestFixture({
+  size = 4n,
+  requestedCopies = 2,
+  contentHash = undefined,
+  contentHashAlgorithm = undefined,
+} = {}) {
   return {
     objectId: "1",
     accountId: ACCOUNT_ID,
     idempotencyKey: IDEMPOTENCY_KEY,
-    contentHash: undefined,
+    contentHash,
+    contentHashAlgorithm,
     metadataHash: CONTENT_HASH,
     size,
     requestedCopies,
