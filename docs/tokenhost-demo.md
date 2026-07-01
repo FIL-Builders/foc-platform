@@ -128,9 +128,13 @@ explicit operator authorization hook in any server wrapper. The direct-onchain
 admin path must instead bind Token Host wrapper reads to the FOC-specific
 registry list/detail surface:
 
-- use bounded ID/key enumeration, matching the Token Host Builder
-  `listIdsC(cursorIdExclusive, limit, includeDeleted=false)` pattern, for
-  objects, accounts, coordinators, relayers, and dataset keys;
+- use bounded ID/key enumeration in the same spirit as Token Host Builder
+  `listIdsC(cursorIdExclusive, limit, includeDeleted=false)` pages, while
+  preserving the FOC registry's exact cursor model;
+- use object-id cursors for `listStorageObjectIds` and
+  `listAccountObjectIds`;
+- use offset pagination for `listAccountIds`, `listCoordinatorAddresses`,
+  `listRelayerAddresses`, and `listDatasetKeys`;
 - fetch details through `getStorageObject`, `getAccountUsage`,
   `getCopyReceipts`, `receiptPayer`, `getDatasetRecord`,
   `coordinatorPolicies`, and `isRelayer`;
