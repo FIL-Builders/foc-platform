@@ -673,6 +673,55 @@ test("local hosted coordinator caches failure even when registry failUpload thro
   assert.equal(registry.failCalls.length, 1);
 });
 
+test("local hosted coordinator does not failUpload after post-FOC finalize errors", async () => {
+  const registry = createRegistry();
+  const uploadCalls = [];
+  const finalizeError = new Error("finalize tx timeout");
+  finalizeError.code = "finalize_timeout";
+  const finalizeUpload = registry.finalizeUpload;
+  let finalizeAttempts = 0;
+  registry.finalizeUpload = async function finalizeWithTransientError(args) {
+    finalizeAttempts += 1;
+    if (finalizeAttempts === 1) throw finalizeError;
+    return finalizeUpload.call(this, args);
+  };
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+  const request = requestFixture({ size: 4n });
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request,
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "finalize_upload_failed");
+      assert.equal(error.details.sourceCode, "finalize_timeout");
+      return true;
+    },
+  );
+
+  assert.equal(registry.status, "Uploading");
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 1);
+
+  const retry = await coordinator.executeUpload({
+    objectId: 1n,
+    request,
+    bytes: new Uint8Array([1, 2, 3, 4]),
+  });
+
+  assert.equal(retry.status, "Committed");
+  assert.equal(finalizeAttempts, 2);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 2);
+});
+
 test("local hosted coordinator does not failUpload an already terminal object", async () => {
   const registry = createRegistry();
   registry.status = "Committed";

@@ -73,7 +73,7 @@ export function createLocalHostedCoordinator({
         return result;
       } catch (error) {
         const mapped =
-          error?.code === "terminal_upload"
+          error?.code === "terminal_upload" || error?.code === "finalize_upload_failed"
             ? error
             : await failPreparedUpload({
                 prepared,
@@ -82,6 +82,10 @@ export function createLocalHostedCoordinator({
                 config,
                 error,
               });
+        if (mapped.code === "finalize_upload_failed") {
+          idempotencyStore.delete(key);
+          throw mapped;
+        }
         idempotencyStore.set(key, { state: "failed", error: mapped });
         throw mapped;
       }
@@ -180,12 +184,26 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
     request: prepared.request,
     payer: synapseResult?.payer ?? config.rootAddress ?? sessionKey.rootAddress,
   });
-  const finalizeResult = await requiredCall(registry.finalizeUpload, registry, {
-    objectId: prepared.objectId,
-    account: prepared.account,
-    receipt: contractReceipt(receipt),
-    sessionKey: publicSessionKey(sessionKey),
-  });
+  let finalizeResult;
+  try {
+    finalizeResult = await requiredCall(registry.finalizeUpload, registry, {
+      objectId: prepared.objectId,
+      account: prepared.account,
+      receipt: contractReceipt(receipt),
+      sessionKey: publicSessionKey(sessionKey),
+    });
+  } catch (error) {
+    throw new HostedCoordinatorError(
+      "finalize_upload_failed",
+      "registry finalization failed after FOC upload; retry without failing upload",
+      {
+        objectId: String(prepared.objectId),
+        sourceCode: error?.code,
+        sourceMessage: error?.message,
+      },
+      error,
+    );
+  }
 
   return Object.freeze({
     objectId: String(prepared.objectId),
