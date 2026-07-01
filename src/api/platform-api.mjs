@@ -5,6 +5,25 @@ const DEFAULT_ACCOUNT_NAMESPACE = "foc-platform:v1:demo";
 const UINT64_MAX = (1n << 64n) - 1n;
 const UINT256_MAX = (1n << 256n) - 1n;
 const CONTENT_HASH_ALGORITHMS = Object.freeze(new Set(["keccak256", "identity-bytes32"]));
+const UPLOAD_STATUS_LABELS = Object.freeze([
+  "None",
+  "Requested",
+  "Uploading",
+  "Committed",
+  "Partial",
+  "Failed",
+  "Cancelled",
+  "Expired",
+  "Deleted",
+]);
+const TERMINAL_UPLOAD_STATUSES = Object.freeze([
+  "Committed",
+  "Partial",
+  "Failed",
+  "Cancelled",
+  "Expired",
+  "Deleted",
+]);
 
 export const PLATFORM_API_ROUTES = Object.freeze({
   createUpload: ["POST /storage/upload-requests", "POST /storage/upload"],
@@ -441,12 +460,13 @@ async function handleTokenHostUpload({ registry, account, auth, body, headers })
       account,
       auth,
     });
-    const existingObject =
-      existingUpload.object ?? existingUpload.reads?.object ?? existingUpload.upload ?? existingUpload;
+    const existingObject = normalizeUploadObjectStatus(
+      existingUpload.object ?? existingUpload.reads?.object ?? existingUpload.upload ?? existingUpload,
+    );
     assertDuplicateTokenHostRequestMatches(existingObject, tokenHostUpload.request);
     if (isTerminalUploadStatus(existingObject.status)) {
       return {
-        ...existingUpload,
+        ...withNormalizedUploadObject(existingUpload, existingObject),
         tokenHost: tokenHostUpload.tokenHost,
       };
     }
@@ -492,7 +512,39 @@ function duplicateUploadRequestObjectId(error) {
 }
 
 function isTerminalUploadStatus(status) {
-  return ["Committed", "Partial", "Failed", "Cancelled", "Expired", "Deleted"].includes(status);
+  return TERMINAL_UPLOAD_STATUSES.includes(normalizeUploadStatus(status));
+}
+
+function normalizeUploadObjectStatus(object) {
+  if (!object || typeof object !== "object" || object.status === undefined) return object;
+  const status = normalizeUploadStatus(object.status);
+  if (status === object.status) return object;
+  return { ...object, status };
+}
+
+function normalizeUploadStatus(status) {
+  if (typeof status === "number" && Number.isInteger(status)) {
+    return UPLOAD_STATUS_LABELS[status] ?? status;
+  }
+  if (typeof status === "bigint") {
+    if (status >= 0n && status < BigInt(UPLOAD_STATUS_LABELS.length)) {
+      return UPLOAD_STATUS_LABELS[Number(status)] ?? status;
+    }
+  }
+  if (typeof status === "string" && /^[0-9]+$/.test(status)) {
+    const numericStatus = Number(status);
+    if (Number.isSafeInteger(numericStatus)) return UPLOAD_STATUS_LABELS[numericStatus] ?? status;
+  }
+  return status;
+}
+
+function withNormalizedUploadObject(payload, object) {
+  if (payload?.object !== undefined) return { ...payload, object };
+  if (payload?.reads?.object !== undefined) {
+    return { ...payload, reads: { ...payload.reads, object } };
+  }
+  if (payload?.upload !== undefined) return { ...payload, upload: object };
+  return object;
 }
 
 function assertDuplicateTokenHostRequestMatches(object, request) {

@@ -392,6 +392,44 @@ test("Token Host generated upload adapter replays completed duplicate requests",
   assert.equal(registry.objects.size, 1);
 });
 
+test("Token Host generated upload adapter replays raw enum terminal duplicates", async () => {
+  const registry = createMemoryRegistry();
+  const submitUploadBytes = registry.submitUploadBytes.bind(registry);
+  const api = createPlatformApi({ registry });
+  const bytes = new Uint8Array([13, 14, 15, 16]);
+  let submitAttempts = 0;
+
+  registry.submitUploadBytes = async (args) => {
+    submitAttempts += 1;
+    return submitUploadBytes(args);
+  };
+
+  const request = {
+    method: "POST",
+    path: "/storage/tokenhost/upload",
+    headers: {
+      ...platformHeaders("tokenhost-user"),
+      "content-type": "image/png",
+      "x-tokenhost-idempotency-key": "tokenhost-raw-terminal-retry-key",
+      "x-tokenhost-upload-filename": "raw-terminal-retry.png",
+      "x-tokenhost-upload-size": String(bytes.byteLength),
+    },
+    body: bytes,
+  };
+  const created = await api.handle(request);
+  registry.objects.get("1").status = 3;
+  const replayed = await api.handle(request);
+
+  assert.equal(created.status, 200);
+  assert.equal(replayed.status, 200);
+  assert.equal(replayed.body.ok, true);
+  assert.equal(replayed.body.upload.metadata.objectId, "1");
+  assert.equal(replayed.body.upload.metadata.status, "Committed");
+  assert.equal(submitAttempts, 1);
+  assert.equal(registry.createCalls.length, 2);
+  assert.equal(registry.objects.size, 1);
+});
+
 test("Token Host generated upload adapter validates and submits number-array bytes", async () => {
   const registry = createMemoryRegistry();
   const submitUploadBytes = registry.submitUploadBytes.bind(registry);
