@@ -31,12 +31,6 @@ export FOC_PLATFORM_DIR=/path/to/foc-platform
 export TOKENHOST_BUILDER_DIR=/path/to/tokenhost-builder
 ```
 
-The primary local builder checkout for this workstream is:
-
-```bash
-export TOKENHOST_BUILDER_DIR=/Users/michaelseiler/dev/tokenhost/tokenhost-builder
-```
-
 Run the builder flow with:
 
 ```bash
