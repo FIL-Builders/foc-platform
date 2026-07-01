@@ -5,14 +5,16 @@
   "type": "module",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "build:artifacts": "forge build && node scripts/generate-registry-artifacts.mjs",
+    "build:artifacts": "forge build && node scripts/generate-registry-artifacts.mjs && node scripts/generate-tokenhost-wrapper-artifacts.mjs",
     "build:contracts": "forge build",
+    "build:tokenhost": "node scripts/generate-tokenhost-wrapper-artifacts.mjs",
     "lint": "node scripts/check-workspace.mjs",
     "test": "pnpm test:node && pnpm test:contracts",
     "test:api": "node --test test/platform-api.test.mjs",
     "test:contracts": "forge test",
     "test:node": "node --test",
-    "test:spine": "node --test test/dev-upload-spine.test.mjs"
+    "test:spine": "node --test test/dev-upload-spine.test.mjs",
+    "test:tokenhost": "node --test test/tokenhost-demo.test.mjs"
   },
   "dependencies": {
     "viem": "^2.54.1"
