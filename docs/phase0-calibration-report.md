@@ -53,8 +53,7 @@ Required operator runbook changes before v1: document high Filecoin message gas 
 Deployment command, with secrets redacted:
 
 ```sh
-source ~/.zshrc >/dev/null 2>&1
-export PLATFORM_ROOT_PRIVATE_KEY="0x${PRIVATE_KEY#0x}"
+export PLATFORM_ROOT_PRIVATE_KEY=0xYOUR_REDACTED_PRIVATE_KEY
 RPC_URL="https://api.calibration.node.glif.io/rpc/v1"
 
 forge script script/DeployFocPlatformRegistry.s.sol:DeployFocPlatformRegistryScript \
@@ -92,7 +91,7 @@ cast call "$REGISTRY" 'owner()(address)' --rpc-url "$RPC_URL"
 cast call "$REGISTRY" 'nextObjectId()(uint256)' --rpc-url "$RPC_URL"
 
 code=$(cast code "$REGISTRY" --rpc-url "$RPC_URL")
-printf "%s" "${code#0x}" | xxd -r -p | shasum -a 256
+printf "0x%s\n" "$(printf "%s" "${code#0x}" | xxd -r -p | shasum -a 256 | awk '{print $1}')"
 jq -r '.deployedBytecodeSha256' artifacts/contracts/FocPlatformRegistry.json
 ```
 

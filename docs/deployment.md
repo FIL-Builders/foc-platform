@@ -42,8 +42,7 @@ private key in a local shell environment and redact it from commands, PRs,
 issues, logs, and committed files.
 
 ```sh
-source ~/.zshrc >/dev/null 2>&1
-export PLATFORM_ROOT_PRIVATE_KEY="0x${PRIVATE_KEY#0x}"
+export PLATFORM_ROOT_PRIVATE_KEY=0xYOUR_REDACTED_PRIVATE_KEY
 
 forge script script/DeployFocPlatformRegistry.s.sol:DeployFocPlatformRegistryScript \
   --rpc-url "$FILECOIN_CALIBRATION_RPC_URL" \
