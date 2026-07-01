@@ -532,6 +532,12 @@ struct DatasetRecord {
   uint64 updatedAt;
 }
 
+struct DatasetKey {
+  bytes32 accountId;
+  uint256 providerId;
+  uint256 datasetId;
+}
+
 struct PolicyConfig {
   bool paused;
   uint64 maxObjectSize;
@@ -665,6 +671,9 @@ error CopyCountMismatch(uint8 completedCopies, uint256 expectedCopies);
 error ReceiptSizeMismatch(uint64 receiptSize, uint64 objectSize);
 error InvalidPayer();
 error ZeroReceiptHash();
+error ListLimitExceeded(uint256 limit, uint256 maxLimit);
+error ReadBatchCallFailed(uint256 index, bytes returnData);
+error ActiveCursorTraversalLimitExceeded(uint256 cursorIdExclusive, uint256 maxSteps);
 ```
 
 #### 6.7.6 External functions
@@ -703,6 +712,41 @@ function setRelayer(address relayer, bool allowed) external;
 
 function recordDataset(DatasetRecord calldata dataset) external;
 
+function objectCount() external view returns (uint256);
+function accountCount() external view returns (uint256);
+function coordinatorCount() external view returns (uint256);
+function relayerCount() external view returns (uint256);
+function datasetRecordCount() external view returns (uint256);
+
+function listStorageObjectIds(
+  uint256 cursorIdExclusive,
+  uint256 limit,
+  bool includeTerminal
+) external view returns (uint256[] memory ids);
+function listAccountIds(
+  uint256 offset,
+  uint256 limit
+) external view returns (bytes32[] memory accountIds);
+function listAccountObjectIds(
+  bytes32 accountId,
+  uint256 cursorIdExclusive,
+  uint256 limit,
+  bool includeTerminal
+) external view returns (uint256[] memory ids);
+function listCoordinatorAddresses(
+  uint256 offset,
+  uint256 limit
+) external view returns (address[] memory coordinators);
+function listRelayerAddresses(
+  uint256 offset,
+  uint256 limit
+) external view returns (address[] memory relayers);
+function listDatasetKeys(
+  uint256 offset,
+  uint256 limit
+) external view returns (DatasetKey[] memory keys);
+function readBatch(bytes[] calldata calls) external view returns (bytes[] memory results);
+
 function getStorageObject(uint256 objectId) external view returns (StorageObject memory);
 function getAccountUsage(bytes32 accountId) external view returns (AccountUsage memory);
 function getCopyReceipts(uint256 objectId) external view returns (CopyReceipt[] memory);
@@ -718,6 +762,33 @@ function objectByIdempotencyKey(
   bytes32 idempotencyKey
 ) external view returns (uint256 objectId);
 ```
+
+List/read requirements for admin and generated read surfaces:
+
+- `MAX_LIST_LIMIT` is `50`. `limit > MAX_LIST_LIMIT` MUST revert with
+  `ListLimitExceeded`; `limit == 0` MUST return an empty page. `readBatch` is
+  bounded by the same limit.
+- Current admin/dashboard rows MUST start from direct registry view calls:
+  list/count methods enumerate IDs or keys, and detail methods fetch objects,
+  usage, copy receipts, receipt payers, coordinator policies, relayer flags, and
+  dataset records.
+- Events and `applyRegistryEvents(events)` are audit, fixture, history, and
+  fallback inputs. They MUST NOT be the primary source for current dashboard
+  state when the list/detail contract views are available.
+- Global object lists use newest-first `cursorIdExclusive` semantics when
+  `includeTerminal=true`. Active lists use the non-terminal linked-list indexes
+  and retain tombstone next pointers so stale cursors can usually continue.
+- If stale active-cursor tombstone traversal exceeds the bounded scan budget,
+  the call MUST revert with `ActiveCursorTraversalLimitExceeded`; callers should
+  restart from `cursorIdExclusive = 0` rather than treating a short page as
+  proof of end-of-list.
+- Offset lists for account IDs, coordinator addresses, relayer addresses, and
+  dataset keys MUST retain disabled or expired rows so operator views can show
+  current status and history-relevant identities.
+- FOC provider/payment facts MUST come from FOC contracts, provider-confirmed
+  transactions, datasets, pieces, payment rails, or public evidence artifacts.
+  The platform registry proves platform attribution/accounting, not external
+  FOC truth by itself.
 
 #### 6.7.7 Access rules
 
@@ -780,7 +851,10 @@ GET  /storage/usage/:accountId
 
 `POST /storage/uploads/:objectId/bytes` is coordinator-facing in v1. It accepts bytes, validates the declared size/content commitment when available, executes Synapse/FOC upload and commit, and then calls `finalizeUpload` or `failUpload`.
 
-Status and read endpoints are indexer/API conveniences. Their data MUST be reconstructable from contract views and events.
+Status and user read endpoints are API conveniences. Current object, usage,
+receipt, dataset, relayer, and coordinator state MUST be read from registry
+views when available; event reconstruction remains an audit/history fallback
+and fixture path.
 
 Read-only operator/admin routes MAY be exposed by a platform wrapper or Token Host generated surface:
 
@@ -797,7 +871,9 @@ GET /admin/storage/reconciliation
 These routes MUST require explicit admin authorization, MUST NOT reuse
 end-user object-ownership checks as their authorization model, and MUST remain
 read-only unless a later spec revision defines admin mutation semantics. Their
-platform state MUST come from contract views or reconstructed registry events.
+current platform state MUST come from direct registry list/detail contract
+views. Reconstructed registry events may supplement history/audit views or
+serve fixtures, but they MUST NOT replace current-state contract reads.
 FOC storage/payment facts MUST be supplied by FOC contracts, provider-confirmed
 transactions, datasets, pieces, or payment rails; otherwise reconciliation
 surfaces must report the FOC side as not checked.
