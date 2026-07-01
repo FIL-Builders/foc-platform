@@ -156,6 +156,7 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
   }
 
   let object = await readStorageObject({ publicClient, config, objectId });
+  validateStorageObjectRequestInputs({ config, objectId, object });
   if (Number(object.status) === 1) {
     txHashes.startUpload = await sendAndWait({
       publicClient,
@@ -165,6 +166,7 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
       args: [objectId],
     });
     object = await readStorageObject({ publicClient, config, objectId });
+    validateStorageObjectRequestInputs({ config, objectId, object });
   }
 
   txHashes.recordDataset = await sendAndWait({
@@ -187,6 +189,7 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
   });
 
   object = await readStorageObject({ publicClient, config, objectId });
+  validateStorageObjectRequestInputs({ config, objectId, object });
   if (![3, 4].includes(Number(object.status))) {
     txHashes.finalizeUpload = await sendAndWait({
       publicClient,
@@ -477,7 +480,11 @@ export function validateCalibrationEvidenceInputs({
   receiptPayer,
   dataset,
 }) {
-  const mismatches = [];
+  const mismatches = collectStorageObjectRequestMismatches({
+    config,
+    objectId,
+    object: finalObject,
+  });
   const objectField = (field) => tupleField(finalObject, field, STORAGE_OBJECT_FIELDS[field]);
   const copyField = (copy, field) => tupleField(copy, field, COPY_RECEIPT_FIELDS[field]);
   const datasetField = (field) => tupleField(dataset, field, DATASET_RECORD_FIELDS[field]);
@@ -487,24 +494,6 @@ export function validateCalibrationEvidenceInputs({
     }
   };
 
-  compare("object.objectId", objectField("objectId"), objectId);
-  compare("object.accountId", objectField("accountId"), config.accountId);
-  compare("object.user", objectField("user"), config.requestParams.user);
-  compare(
-    "object.idempotencyKey",
-    objectField("idempotencyKey"),
-    config.requestParams.idempotencyKey,
-  );
-  compare("object.contentHash", objectField("contentHash"), config.requestParams.contentHash);
-  compare("object.metadataHash", objectField("metadataHash"), config.requestParams.metadataHash);
-  compare("object.size", objectField("size"), config.requestParams.size);
-  compare(
-    "object.requestedCopies",
-    objectField("requestedCopies"),
-    config.requestParams.requestedCopies,
-  );
-  compare("object.withCDN", objectField("withCDN"), config.requestParams.withCDN);
-  compare("object.maxCost", objectField("maxCost"), config.requestParams.maxCost);
   compare("object.pieceCidHash", objectField("pieceCidHash"), config.receipt.pieceCidHash);
   compare("object.completedCopies", objectField("completedCopies"), config.receipt.completedCopies);
   compare("object.actualCost", objectField("actualCost"), config.receipt.actualCost);
@@ -565,6 +554,46 @@ export function validateCalibrationEvidenceInputs({
       `Onchain demo evidence does not match current config; refusing to write evidence: ${mismatches.join("; ")}`,
     );
   }
+}
+
+export function validateStorageObjectRequestInputs({ config, objectId, object }) {
+  const mismatches = collectStorageObjectRequestMismatches({ config, objectId, object });
+  if (mismatches.length > 0) {
+    throw new Error(
+      `Onchain demo request does not match current config; refusing to mutate registry: ${mismatches.join("; ")}`,
+    );
+  }
+}
+
+function collectStorageObjectRequestMismatches({ config, objectId, object }) {
+  const mismatches = [];
+  const objectField = (field) => tupleField(object, field, STORAGE_OBJECT_FIELDS[field]);
+  const compare = (label, actual, expected) => {
+    if (identityPart(actual) !== identityPart(expected)) {
+      mismatches.push(`${label} expected ${displayPart(expected)} got ${displayPart(actual)}`);
+    }
+  };
+
+  compare("object.objectId", objectField("objectId"), objectId);
+  compare("object.accountId", objectField("accountId"), config.accountId);
+  compare("object.user", objectField("user"), config.requestParams.user);
+  compare(
+    "object.idempotencyKey",
+    objectField("idempotencyKey"),
+    config.requestParams.idempotencyKey,
+  );
+  compare("object.contentHash", objectField("contentHash"), config.requestParams.contentHash);
+  compare("object.metadataHash", objectField("metadataHash"), config.requestParams.metadataHash);
+  compare("object.size", objectField("size"), config.requestParams.size);
+  compare(
+    "object.requestedCopies",
+    objectField("requestedCopies"),
+    config.requestParams.requestedCopies,
+  );
+  compare("object.withCDN", objectField("withCDN"), config.requestParams.withCDN);
+  compare("object.maxCost", objectField("maxCost"), config.requestParams.maxCost);
+
+  return mismatches;
 }
 
 async function assertOwner({ publicClient, config }) {

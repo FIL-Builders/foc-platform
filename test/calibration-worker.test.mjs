@@ -412,3 +412,52 @@ test("Calibration registry runner validates config evidence against onchain read
     /copyReceipts\[0\]\.retrievalUrlHash/,
   );
 });
+
+test("Calibration registry runner rejects stale request config before mutation", async () => {
+  const runner = await import(`../scripts/run-calibration-registry-demo.mjs?request=${Date.now()}`);
+  const objectId = 42n;
+  const user = "0x0000000000000000000000000000000000001234";
+  const idempotencyKey = `0x${"66".repeat(32)}`;
+  const config = {
+    accountId: ACCOUNT_ID,
+    requestParams: {
+      user,
+      idempotencyKey,
+      contentHash: `0x${"aa".repeat(32)}`,
+      metadataHash: `0x${"bb".repeat(32)}`,
+      size: 123n,
+      requestedCopies: 1,
+      withCDN: false,
+      maxCost: 1000n,
+    },
+  };
+  const object = {
+    objectId,
+    accountId: ACCOUNT_ID,
+    user,
+    idempotencyKey,
+    contentHash: config.requestParams.contentHash,
+    metadataHash: config.requestParams.metadataHash,
+    size: 123n,
+    requestedCopies: 1,
+    withCDN: false,
+    maxCost: 1000n,
+  };
+
+  assert.doesNotThrow(() =>
+    runner.validateStorageObjectRequestInputs({
+      config,
+      objectId,
+      object,
+    }),
+  );
+  assert.throws(
+    () =>
+      runner.validateStorageObjectRequestInputs({
+        config,
+        objectId,
+        object: { ...object, metadataHash: `0x${"01".repeat(32)}` },
+      }),
+    /refusing to mutate registry: .*object\.metadataHash/,
+  );
+});
