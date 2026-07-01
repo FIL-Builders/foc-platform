@@ -1,0 +1,14 @@
+{
+  "name": "@fil-builders/foc-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build:contracts": "forge build",
+    "lint": "node scripts/check-workspace.mjs",
+    "test": "pnpm test:node && pnpm test:contracts",
+    "test:contracts": "forge test",
+    "test:node": "node --test"
+  }
+}
