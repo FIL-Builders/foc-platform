@@ -39,6 +39,30 @@ test("ops validation rejects raw production secret env values", async () => {
   );
 });
 
+test("ops validation rejects scoped mnemonic and seed env values in production", async () => {
+  for (const key of ["MNEMONIC", "SEED", "PLATFORM_ROOT_MNEMONIC", "COORDINATOR_SEED", "FOC_COORDINATOR_MNEMONIC"]) {
+    await assert.rejects(
+      () =>
+        validateOpsConfig({
+          env: {
+            FOC_PLATFORM_OPS_PROFILE: "production",
+            [key]: "test test test test test test test test test test test junk",
+            FOC_PLATFORM_ROOT_KMS_KEY_REF: "projects/example/keyRings/foc/cryptoKeys/root",
+            FOC_COORDINATOR_KMS_KEY_REF: "projects/example/keyRings/foc/cryptoKeys/coordinator",
+            FOC_PLATFORM_ADMIN_AUTH_AUDIENCE: "https://admin.example.invalid",
+          },
+          scanFiles: false,
+        }),
+      (error) => {
+        assert.equal(error instanceof OpsConfigError, true);
+        assert.equal(error.code, "raw_secret_env");
+        assert.deepEqual(error.details.keys, [key]);
+        return true;
+      },
+    );
+  }
+});
+
 test("ops validation accepts production KMS refs and bounded limits", async () => {
   const result = await validateOpsConfig({
     env: {

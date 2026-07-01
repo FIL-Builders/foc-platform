@@ -119,7 +119,7 @@ async function runCoordinatorSmoke(iterations) {
     if (first.status !== "Committed") {
       throw new Error(`coordinator commit failed at iteration ${index}`);
     }
-    if (replay !== first) {
+    if (!sameCommittedUpload(first, replay)) {
       throw new Error(`coordinator idempotent replay failed at iteration ${index}`);
     }
     summary.committed += 1;
@@ -132,6 +132,25 @@ async function runCoordinatorSmoke(iterations) {
     throw new Error("coordinator smoke did not preserve upload/finalize idempotency");
   }
   return summary;
+}
+
+function sameCommittedUpload(first, replay) {
+  if (!first || !replay) return false;
+  if (String(replay.objectId) !== String(first.objectId)) return false;
+  if (replay.status !== first.status || replay.status !== "Committed") return false;
+
+  const receiptFields = [
+    "finalizationStatus",
+    "finalizationStatusLabel",
+    "payer",
+    "pieceCidHash",
+    "size",
+    "requestedCopies",
+    "completedCopies",
+    "actualCost",
+    "receiptHash",
+  ];
+  return receiptFields.every((field) => String(replay.receipt?.[field]) === String(first.receipt?.[field]));
 }
 
 function createApiUploadRequest(index) {
