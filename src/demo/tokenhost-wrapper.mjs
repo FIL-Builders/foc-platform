@@ -155,7 +155,8 @@ export function createTokenHostRegistryDirectReadAdapter({
       readContract(reads.receiptPayer),
     ]);
     const object = normalizeRegistryStorageObject(objectResult);
-    const normalizedObjectId = object.objectId === "0" ? decimalString(objectId) : object.objectId;
+    if (isMissingRegistryObject(object)) return null;
+    const normalizedObjectId = object.objectId;
 
     return {
       objectId: normalizedObjectId,
@@ -186,7 +187,9 @@ export function createTokenHostRegistryDirectReadAdapter({
         ),
     });
     const ids = Array.from(page.values, decimalString);
-    const objects = await mapWithConcurrency(ids, maxDetailConcurrency, readObjectDetails);
+    const objects = (
+      await mapWithConcurrency(ids, maxDetailConcurrency, readObjectDetails)
+    ).filter(Boolean);
 
     return {
       sourceOfTruth: DIRECT_READ_SOURCE,
@@ -384,6 +387,7 @@ export function createTokenHostRegistryDirectReadAdapter({
 
   async function mergeObjectDetail(model, objectId) {
     const row = await readObjectDetails(objectId);
+    if (!row) return;
     model.objects[row.objectId] = row.object;
     model.copyReceipts[row.objectId] = row.copyReceipts;
     model.receiptPayers[row.objectId] = row.receiptPayer;
@@ -398,6 +402,7 @@ export function createTokenHostRegistryDirectReadAdapter({
         includeTerminal: options.includeTerminal ?? includeTerminal,
       });
       for (const row of result.objects) {
+        if (!row) continue;
         model.objects[row.objectId] = row.object;
         model.copyReceipts[row.objectId] = row.copyReceipts;
         model.receiptPayers[row.objectId] = row.receiptPayer;
@@ -761,6 +766,10 @@ function normalizeConcurrency(concurrency) {
 
 function currentUnixSeconds() {
   return Math.floor(Date.now() / 1000);
+}
+
+function isMissingRegistryObject(object) {
+  return object.objectId === "0";
 }
 
 function decimalString(value) {

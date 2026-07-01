@@ -160,6 +160,20 @@ test("Token Host direct read adapter honors admin route hints", async () => {
     "getCopyReceipts",
     "receiptPayer",
   ]);
+
+  calls.length = 0;
+  const missingObject = await api.handle({
+    method: "GET",
+    path: "/admin/storage/objects/999",
+    headers: {},
+  });
+  assert.equal(missingObject.status, 404);
+  assert.equal(missingObject.body.error.code, "admin_object_not_found");
+  assert.deepEqual(calls.map((call) => call.functionName), [
+    "getStorageObject",
+    "getCopyReceipts",
+    "receiptPayer",
+  ]);
 });
 
 test("Token Host direct read adapter defaults admin time for coordinator expiry checks", async () => {
@@ -313,7 +327,7 @@ function createRegistryFixtureClient({ staleActiveCursor, calls } = {}) {
         case "listRelayerAddresses":
           return offsetPage([RELAYER], args[0], args[1]);
         case "getStorageObject":
-          return objects.get(String(args[0]));
+          return objects.get(String(args[0])) ?? zeroStorageObject();
         case "getAccountUsage":
           return usage.get(args[0]);
         case "getCopyReceipts":
@@ -379,6 +393,31 @@ function cursorPage(values, cursorIdExclusive, limit) {
 
 function offsetPage(values, offset, limit) {
   return values.slice(Number(offset), Number(offset) + Number(limit));
+}
+
+function zeroStorageObject() {
+  return {
+    objectId: 0n,
+    accountId: hex32("00"),
+    user: ZERO_ADDRESS,
+    idempotencyKey: hex32("00"),
+    contentHash: hex32("00"),
+    metadataHash: hex32("00"),
+    pieceCidHash: hex32("00"),
+    size: 0n,
+    requestedCopies: 0,
+    completedCopies: 0,
+    withCDN: false,
+    maxCost: 0n,
+    reservedCost: 0n,
+    actualCost: 0n,
+    status: 0,
+    coordinator: ZERO_ADDRESS,
+    requestExpiresAt: 0n,
+    createdAt: 0n,
+    updatedAt: 0n,
+    receiptHash: hex32("00"),
+  };
 }
 
 function hex32(byte) {
