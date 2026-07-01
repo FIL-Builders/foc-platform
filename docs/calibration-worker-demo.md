@@ -1,9 +1,10 @@
 # Calibration Worker Demo
 
-Issue #15 exposes the Calibration demo through a Cloudflare Worker. The Worker
-is intentionally read-only: it serves public evidence, links to generated
-Token Host wrapper metadata, and can read the deployed registry through a
-public Calibration RPC. It must not upload files, pay FOC, withdraw funds, or
+Issue #15 exposes the Calibration demo through a Cloudflare Worker. Issue #32
+turns the Worker first screen into a read-only admin dashboard for the
+configured `FocPlatformRegistry`: it serves public evidence, reads dashboard
+rows through direct registry list/detail views, and links to generated Token
+Host wrapper metadata. It must not upload files, pay FOC, withdraw funds, or
 submit registry transactions.
 
 ## Worker Commands
@@ -20,6 +21,14 @@ Check the public endpoints:
 curl http://127.0.0.1:8787/api/health
 curl http://127.0.0.1:8787/api/demo/evidence
 curl http://127.0.0.1:8787/api/demo/registry
+curl http://127.0.0.1:8787/api/admin/overview
+curl http://127.0.0.1:8787/api/admin/files?limit=10
+curl 'http://127.0.0.1:8787/api/admin/files?limit=10&cursor=1'
+curl http://127.0.0.1:8787/api/admin/accounts?limit=10
+curl 'http://127.0.0.1:8787/api/admin/accounts?limit=10&offset=10'
+curl http://127.0.0.1:8787/api/admin/datasets?limit=10
+curl http://127.0.0.1:8787/api/admin/coordinators?limit=10
+curl http://127.0.0.1:8787/api/admin/reconciliation?limit=10
 ```
 
 Current deployed Worker:
@@ -47,21 +56,36 @@ documented in
 [`docs/production-hardening-runbook.md`](./production-hardening-runbook.md).
 
 The current deployed Worker and registry evidence predate the direct pagination
-ABI. They prove the read-only Worker demo and one configured object against the
-then-deployed registry, but they do not prove `listStorageObjectIds`,
-`listAccountIds`, `listDatasetKeys`, `readBatch`, or the direct-onchain admin
-dashboard path. Issue #33 must publish updated evidence from a registry build
-that includes the pagination ABI before the dashboard stack can claim
-end-to-end direct-read proof.
+ABI. The Worker code now has direct-onchain dashboard routes, but the deployed
+public evidence still points at the earlier registry. Issue #33 must publish
+updated evidence from a registry build that includes the pagination ABI before
+the dashboard stack can claim end-to-end public Calibration direct-read proof.
 
 ## Public Endpoints
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Operator-facing HTML demo surface. |
+| `/` | Operator-facing admin dashboard HTML surface. |
+| `/admin` | Explicit admin dashboard alias. |
 | `/api/health` | Worker health and authority boundary. |
 | `/api/demo/evidence` | Static public demo configuration assembled from Worker vars. |
 | `/api/demo/registry` | Public registry reads for owner, next object id, and configured object/usage/receipt state. |
+| `/api/admin/overview` | Bounded dashboard metrics and source metadata from direct registry count reads. |
+| `/api/admin/files` | Paginated object/file rows with status, account, provider, dataset, coordinator, and text filters. Uses `cursor` for next-page reads; cross-surface reconciliation remains in `/api/admin/reconciliation`. |
+| `/api/admin/accounts` | Paginated account usage rows from registry account list/detail reads. |
+| `/api/admin/datasets` | Paginated dataset/provider rows from registry dataset key/detail reads. |
+| `/api/admin/coordinators` | Coordinator policy and relayer rows from registry list/detail reads. |
+| `/api/admin/reconciliation` | Reconciliation warnings and evidence boundaries from direct-read admin surfaces. |
+
+The table endpoints accept `limit` up to the registry max list limit. Files use
+the object-id cursor returned as `pagination.nextCursorIdExclusive`; accounts,
+datasets, and coordinators use the returned `pagination.nextOffset`. Filters
+and text search apply to the returned page so the Worker keeps each request
+bounded instead of scanning the full registry for a global search.
+
+Append `?live=false` to any dashboard or registry endpoint when you need a
+route-level smoke check without making public RPC calls. Unknown dashboard
+routes still return `404`.
 
 ## Local Evidence Generation Boundary
 

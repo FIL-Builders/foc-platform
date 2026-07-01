@@ -83,10 +83,17 @@ gates close.
 
 The Calibration Worker demo in [`wrangler.jsonc`](./wrangler.jsonc) and
 [`src/worker/calibration-demo.mjs`](./src/worker/calibration-demo.mjs) exposes a
-read-only public evidence surface for issue #15. It is configured with live
-Calibration evidence for registry object `1`, provider/dataset/piece
-`4`/`12524`/`34`, and a committed registry finalization. The deployed demo is
-available at `https://foc-platform-calibration-demo.snissn.workers.dev`. Run
+read-only public admin dashboard and evidence surface. `/` and `/admin` render
+the dashboard; `/api/admin/overview`, `/api/admin/files`,
+`/api/admin/accounts`, `/api/admin/datasets`, `/api/admin/coordinators`, and
+`/api/admin/reconciliation` expose JSON rows backed by direct registry
+count/list/detail reads. Overview uses bounded contract count reads; table
+routes expose page metadata with `cursor` or `offset`, and filters are
+page-scoped to keep Worker requests bounded. The committed demo config still points at live Calibration
+evidence for registry object `1`, provider/dataset/piece `4`/`12524`/`34`, and
+a committed registry finalization; issue #33 owns publishing updated public
+evidence for the direct pagination ABI. The deployed demo is available at
+`https://foc-platform-calibration-demo.snissn.workers.dev`. Run
 `pnpm worker:dev` for a local Worker and `pnpm worker:dry-run` to validate the
 deploy bundle. The Worker must not receive private keys or session keys;
 privileged FOC upload and registry transaction submission stay in the local
