@@ -30,7 +30,6 @@ test("POST /storage/upload creates an opaque-account upload request", async () =
     body: {
       idempotencyKey: "avatar-upload",
       contentHash: "hello-content",
-      contentHashAlgorithm: "keccak256",
       metadataHash: "hello-metadata",
       size: 1024,
       requestedCopies: 2,
@@ -46,8 +45,27 @@ test("POST /storage/upload creates an opaque-account upload request", async () =
   assert.notEqual(response.body.request.accountId, "user@example.com");
   assert.equal(response.body.links.uploadBytes, "/storage/uploads/1/bytes");
   assert.equal(registry.createCalls[0].request.accountId, response.body.request.accountId);
-  assert.equal(registry.createCalls[0].request.contentHashAlgorithm, "keccak256");
+  assert.equal(registry.createCalls[0].request.contentHashAlgorithm, undefined);
   assert.equal(registry.createCalls[0].request.user, WALLET);
+});
+
+test("POST /storage/upload preserves bytes32 content hash algorithms", async () => {
+  const registry = createMemoryRegistry();
+  const api = createPlatformApi({ registry });
+  const contentHash = hex32("ab");
+
+  const response = await api.handle({
+    ...createUploadRequest({ idempotencyKey: "committed-content" }),
+    body: {
+      ...createUploadRequest({ idempotencyKey: "committed-content" }).body,
+      contentHash: contentHash.toUpperCase().replace("0X", "0x"),
+      contentHashAlgorithm: "keccak256",
+    },
+  });
+
+  assert.equal(response.status, 201);
+  assert.equal(registry.createCalls[0].request.contentHash, contentHash);
+  assert.equal(registry.createCalls[0].request.contentHashAlgorithm, "keccak256");
 });
 
 test("duplicate idempotency returns a stable 409 without creating a second object", async () => {
@@ -107,6 +125,14 @@ test("create upload rejects malformed boundary inputs before adapter work", asyn
       contentHashAlgorithm: "sha256",
     },
   });
+  const opaqueHashWithAlgorithm = await api.handle({
+    ...createUploadRequest({ idempotencyKey: "opaque-content-hash-algorithm" }),
+    body: {
+      ...createUploadRequest({ idempotencyKey: "opaque-content-hash-algorithm" }).body,
+      contentHash: "hello-content",
+      contentHashAlgorithm: "keccak256",
+    },
+  });
 
   assert.equal(badIdempotency.status, 400);
   assert.equal(badIdempotency.body.error.code, "invalid_idempotency_key");
@@ -118,6 +144,8 @@ test("create upload rejects malformed boundary inputs before adapter work", asyn
   assert.equal(fractionalExpiry.body.error.code, "invalid_requestExpiresAt");
   assert.equal(unsupportedHashAlgorithm.status, 400);
   assert.equal(unsupportedHashAlgorithm.body.error.code, "unsupported_content_hash_algorithm");
+  assert.equal(opaqueHashWithAlgorithm.status, 400);
+  assert.equal(opaqueHashWithAlgorithm.body.error.code, "invalid_content_hash");
   assert.equal(registry.createCalls.length, 0);
 });
 
@@ -382,6 +410,10 @@ function platformHeaders(user = "platform-user", wallet = WALLET) {
     "x-platform-user-id": user,
     "x-platform-wallet-address": wallet,
   };
+}
+
+function hex32(byte) {
+  return `0x${byte.repeat(32)}`;
 }
 
 function createMemoryRegistry() {

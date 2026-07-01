@@ -103,6 +103,20 @@ export function normalizeContentHashAlgorithm(value) {
   return normalized;
 }
 
+function normalizeContentHash(value, algorithm) {
+  if (algorithm === undefined) {
+    return normalizeBytes32(value, "content_hash");
+  }
+  if (!isBytes32(value)) {
+    throw new PlatformApiError(
+      400,
+      "invalid_content_hash",
+      "contentHash must be a bytes32 when contentHashAlgorithm is supplied",
+    );
+  }
+  return value.toLowerCase();
+}
+
 export function createPlatformApi({
   registry,
   accountMapper = createPlatformAccountMapper(),
@@ -384,6 +398,7 @@ function normalizeUploadRequest(body, headers, account) {
     uintValue(body.requestedCopies ?? 1, "requestedCopies", { min: 1n, max: 255n }),
   );
   const maxCost = uintValue(body.maxCost ?? 0, "maxCost", { min: 0n, max: UINT256_MAX });
+  const contentHashAlgorithm = normalizeContentHashAlgorithm(body.contentHashAlgorithm);
   const requestExpiresAt =
     body.requestExpiresAt === undefined
       ? undefined
@@ -395,8 +410,8 @@ function normalizeUploadRequest(body, headers, account) {
     idempotencyKey: normalizeIdempotencyKey(
       body.idempotencyKey ?? header(headers, "idempotency-key"),
     ),
-    contentHash: normalizeBytes32(body.contentHash, "content_hash"),
-    contentHashAlgorithm: normalizeContentHashAlgorithm(body.contentHashAlgorithm),
+    contentHash: normalizeContentHash(body.contentHash, contentHashAlgorithm),
+    contentHashAlgorithm,
     metadataHash: normalizeBytes32(body.metadataHash, "metadata_hash"),
     size: size.toString(),
     requestedCopies,
