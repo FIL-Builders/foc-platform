@@ -106,10 +106,7 @@ export function mapSynapseResultToUploadReceipt({
     explicitStatus: result.finalizationStatus,
   });
   validateFinalizationStatusForCopies({ finalizationStatus, completedCopies, requestedCopies });
-  const pieceCidHash = normalizeBytes32(
-    result.pieceCidHash ?? hashText(`piece-cid:${result.pieceCid ?? ""}`),
-    "pieceCidHash",
-  );
+  const pieceCidHash = resolvePieceCidHash(result, finalizationStatus);
   const fallbackReceiptHash = deriveReceiptHash({
     receiptSalt,
     request,
@@ -218,6 +215,26 @@ function validateFinalizationStatusForCopies({
       { completedCopies: String(completedCopies) },
     );
   }
+}
+
+function resolvePieceCidHash(result, finalizationStatus) {
+  if (!missingBytes32(result.pieceCidHash)) {
+    return normalizeBytes32(result.pieceCidHash, "pieceCidHash");
+  }
+  if (hasPieceCid(result.pieceCid)) {
+    return normalizeBytes32(hashText(`piece-cid:${result.pieceCid}`), "pieceCidHash");
+  }
+  if (finalizationStatus === FINALIZATION_STATUS.Failed) {
+    return normalizeBytes32(hashText("failed-piece-cid"), "pieceCidHash");
+  }
+  throw new CoordinatorReceiptError(
+    "missing_piece_cid",
+    "committed and partial receipts require pieceCid or pieceCidHash",
+  );
+}
+
+function hasPieceCid(value) {
+  return value !== undefined && value !== null && value !== "";
 }
 
 function normalizeCopies(copies) {

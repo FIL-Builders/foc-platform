@@ -362,6 +362,44 @@ test("receipt mapping treats zero receipt hashes as missing", () => {
   assert.equal(zeroReceipt.receiptHash, fallbackReceipt.receiptHash);
 });
 
+test("receipt mapping rejects completed receipts without PieceCID material", () => {
+  for (const [name, request, result] of [
+    [
+      "committed",
+      requestFixture({ size: 4n, requestedCopies: 1 }),
+      {
+        actualCost: 7n,
+        completedCopies: 1,
+        copies: [copyFixture()],
+      },
+    ],
+    [
+      "partial",
+      requestFixture({ size: 4n, requestedCopies: 2 }),
+      {
+        finalizationStatus: "Partial",
+        actualCost: 7n,
+        completedCopies: 1,
+        copies: [copyFixture()],
+      },
+    ],
+  ]) {
+    assert.throws(
+      () =>
+        mapSynapseResultToUploadReceipt({
+          payer: PAYER,
+          request,
+          result,
+        }),
+      (error) => {
+        assert.equal(error.name, "CoordinatorReceiptError", name);
+        assert.equal(error.code, "missing_piece_cid", name);
+        return true;
+      },
+    );
+  }
+});
+
 test("receipt mapping rejects completed copy count mismatches", () => {
   assert.throws(
     () =>
