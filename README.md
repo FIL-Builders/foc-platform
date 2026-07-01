@@ -36,14 +36,14 @@ This repository is currently a draft specification and planning workspace.
 
 See [`spec.md`](./spec.md).
 
-The design is not production-ready, but it now selects a v1 implementation path to validate: platform EOA/KMS payer, FOC session-key coordinator, hosted coordination, and onchain request/object/usage/receipt state. Future payment and coordinator modes remain compatibility-gated by Phase 0 evidence.
+The design is not production-ready, but it now selects a v1 implementation path to validate: platform EOA/KMS payer, FOC session-key coordinator, hosted coordination, onchain request/object/usage/receipt state, and a Token Host Builder-first scaffold for the generated app, admin/read surfaces, upload adapters, manifests, and sponsored transaction wiring. Future payment and coordinator modes remain compatibility-gated by Phase 0 evidence.
 
 ## Related projects
 
 - [`@filoz/synapse-sdk`](https://github.com/FilOzone/synapse-sdk) — core SDK for FOC storage, payments, providers, datasets, and retrieval.
 - [`foc-cli`](https://github.com/FIL-Builders/foc-cli) — CLI and agent-facing operational tooling for FOC.
 - [`foc-storage-mcp`](https://github.com/FIL-Builders/foc-storage-mcp) — MCP tools for AI-agent FOC storage workflows.
-- [`tokenhost-builder`](https://github.com/tokenhost/tokenhost-builder/) — candidate framework for generating onchain platform registry, usage ledger, UI, upload adapters, and sponsored transaction scaffolding.
+- [`tokenhost-builder`](https://github.com/tokenhost/tokenhost-builder/) — first-class scaffold for generated Filecoin-ready apps, generated UI/admin surfaces, upload adapters, manifest metadata, onchain indexing, and sponsored transaction UX around the platform contract/API surface.
 
 Together, these projects cover different layers of the FOC developer experience. `foc-platform` focuses specifically on the platform-integration layer: how a company can offer FOC-backed storage through its own API, billing model, user accounts, and managed payment flow.
 
@@ -55,8 +55,9 @@ The current v1 direction is:
 - FOC session keys for coordinator execution,
 - platform-hosted allowlisted coordinator,
 - onchain request, object, usage, and compact receipt state,
+- Token Host Builder-generated app/admin/read UI, upload adapter, manifest, and sponsored transaction scaffolding,
 - quota/credit-style accounting before contract-custodied user deposits.
 
-Smart-account payers, contract treasury payment, direct browser-to-FOC upload, BYO coordinators, stronger proof models, and Token Host-generated production scaffolding remain compatibility-gated future paths.
+Smart-account payers, contract treasury payment, direct browser-to-FOC upload, BYO coordinators, and stronger proof models remain compatibility-gated future paths. Token Host Builder is the preferred v1 scaffolding path, but the production contract/API semantics in `spec.md` remain authoritative until a generated custom module proves compatibility with the upload lifecycle, coordinator controls, receipts, and usage accounting model.
 
-The next recommended step is to complete the Phase 0 Filecoin Calibration compatibility report in `spec.md`, including required transaction hashes, pass/fail answers, SDK gaps, and the final recommended v1 mode.
+The next recommended step is to complete the Phase 0 Filecoin Calibration compatibility report and Token Host Builder compatibility matrix in `spec.md`, including required transaction hashes, pass/fail answers, SDK gaps, builder gaps, and the final recommended v1 implementation mode.

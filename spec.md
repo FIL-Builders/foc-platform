@@ -2,7 +2,7 @@
 
 Status: Draft / v1 finalization spec
 Owner: FOC client engineering  
-Last updated: 2026-06-01
+Last updated: 2026-07-01
 Related repos:
 
 - `~/dev/filozone/synapse-sdk`
@@ -22,7 +22,7 @@ The target model is:
 4. User-level usage, quotas, prepaid balances, billing events, and object ownership are tracked primarily onchain.
 5. Offchain infrastructure remains as stateless and replaceable as possible. Its main responsibilities are byte movement, FOC SDK execution, relaying, optional indexing, and operational coordination.
 
-This revision selects a concrete v1 path while preserving future modes as explicit compatibility gates. Production contract work should follow the v1 decisions below unless the Phase 0 compatibility report records evidence that requires a change.
+This revision selects a concrete v1 path while preserving future modes as explicit compatibility gates. Production contract work should follow the v1 decisions below unless the Phase 0 compatibility report records evidence that requires a change. Token Host Builder is the preferred v1 scaffolding path for generated app surfaces, admin/read UI, upload adapters, manifests, and transaction UX, but section 6.7 remains the authoritative protocol/API surface until a generated custom module proves equivalence.
 
 ## V1 Architecture Decisions
 
@@ -38,7 +38,7 @@ These decisions are normative for v1:
 6. **Receipts:** v1 stores compact receipt fields in contract storage and emits richer event detail. A finalized platform object must be reconcilable to FOC provider, dataset, piece, payer, and tx evidence without requiring coordinator-private state.
 7. **Upload lifecycle:** v1 upload requests are async. The platform API creates an onchain request, the coordinator uploads and commits through FOC, then the coordinator finalizes the request with a receipt or marks it failed.
 8. **Authorization:** v1 accepts direct user transactions, authorized relays, or EIP-712 user signatures. If a normal platform API authenticates users offchain, the relayer is accountable for mapping that API user to an opaque onchain `accountId`.
-9. **Token Host:** Token Host generation is not a v1 dependency. Generated registry/admin/UI support remains a post-v1 integration path unless it accelerates a demo without changing the contract surface.
+9. **Token Host:** Token Host Builder is a v1 scaffolding dependency for the demo app, admin/read surfaces, upload adapters, manifest metadata, and sponsored transaction wiring. It is not allowed to weaken the section 6.7 contract/API semantics: generic CRUD output may wrap, index, or prototype the platform state, but any generated production module must match the upload lifecycle, coordinator-only finalization, compact receipt, dataset/copy, and usage-accounting rules in this spec.
 10. **Phase 0 gate:** before production contract implementation, the team must complete the Phase 0 Compatibility Report Template in section 13.1. The report must include transaction hashes or logs for every required compatibility claim.
 
 The following modes are explicitly **not** v1 defaults and require Phase 0 evidence plus a spec update before implementation:
@@ -139,7 +139,7 @@ Onchain metadata is public. The stack MUST NOT store secrets or sensitive PII on
 - Quotas, prepaid balances, or spend caps.
 - FOC upload coordinator scaffold.
 - Synapse SDK integration.
-- Token Host Builder integration for generated contracts and UI.
+- Token Host Builder-first integration for generated app surfaces, admin/read UI, upload adapters, manifest metadata, onchain indexing, and sponsored transaction scaffolding.
 - Optional sponsored transaction / gasless UX.
 - Optional offchain indexer or cache.
 - Compatibility testing for contract wallets and FOC payment flows.
@@ -409,6 +409,8 @@ This spec does not currently target shared cross-user datasets as a primary prod
 ### 6.7 V1 Contract/API Surface
 
 The v1 implementation SHOULD start as one `FocPlatformRegistry` contract or as a small set of contracts that expose the same external surface. Splitting storage, usage, policy, and intent routing is an implementation choice; the ABI below is the v1 contract.
+
+Token Host Builder MAY generate app scaffolding, read/admin views, upload adapters, indexes, and prototype collections around this surface. Generic generated CRUD MUST NOT be treated as equivalent to this section unless a generated FOC Platform module preserves the lifecycle, access control, idempotency, reservation, receipt, and accounting invariants below.
 
 #### 6.7.1 Identifiers and storage policy
 
@@ -1750,11 +1752,56 @@ Post-v1 receipt choices:
 
 ## 10. Token Host Builder Integration
 
-Token Host Builder can accelerate this stack because it already supports schema-generated EVM CRUD apps, onchain indexing, Filecoin upload adapters, Filecoin chain targets, generated UI, and sponsored transaction concepts.
+Token Host Builder is the preferred v1 scaffold for the platform app surface. The current builder already has useful substrate for this stack:
 
-### 10.1 Possible schema extension
+- THS schema validation and generated EVM CRUD app output,
+- generated UI and onchain indexing,
+- Filecoin Calibration and Filecoin mainnet chain targets,
+- image/upload fields and Filecoin Onchain Cloud upload metadata,
+- generated Netlify upload scaffolding for `filecoin_onchain_cloud`,
+- remote upload adapter metadata and `foc-process` upload runner support,
+- manifest-driven upload runtime config,
+- `userPays` and `sponsored` transaction modes.
 
-Potential schema surface:
+The integration rule is strict: Token Host Builder should generate or scaffold as much of the app, operator, upload, manifest, indexing, and transaction UX as possible, but the section 6.7 protocol semantics remain the source of truth. If generic CRUD generation cannot express a lifecycle rule, authorization rule, receipt shape, or accounting invariant, the plan must call for a generated custom FOC module or a hand-written Platform Contract wrapped by generated Token Host UI and adapters.
+
+### 10.1 Current builder baseline
+
+The platform plan should assume these current Token Host Builder capabilities are available for v1 scaffolding:
+
+- `apps/example/microblog.schema.json` demonstrates Filecoin Calibration-oriented generated UI with image fields, upload features, onchain indexing, and Netlify Filecoin upload configuration.
+- `docs/examples-microblog-netlify-upload.md` documents generated Netlify upload artifacts for `POST /__tokenhost/upload` and polling through `/__tokenhost/upload-status`.
+- `docs/examples-microblog-remote-upload.md` and `examples/upload-adapters/foc-remote-adapter.mjs` document a standalone remote adapter and `foc-process` mode backed by `foc-cli upload`.
+- `packages/templates/next-export-ui/src/lib/manifest.ts`, `upload.ts`, and `tx.ts` provide generated UI runtime hooks for upload metadata and sponsored transactions.
+- `packages/cli/src/index.ts` wires Filecoin chain names, upload runner metadata, generated Netlify artifacts, local preview upload behavior, and `--tx-mode auto|userPays|sponsored`.
+
+This baseline is enough for v1 app scaffolding and demos. It is not yet enough evidence that generic CRUD generation can replace the `FocPlatformRegistry` lifecycle in section 6.7.
+
+### 10.2 Compatibility matrix
+
+| Section 6.7 concept | Token Host Builder baseline | Status | V1 plan |
+| --- | --- | --- | --- |
+| Filecoin chain target | CLI supports `filecoin_calibration` and `filecoin_mainnet` generation/deploy/verify paths. | Current support | Use for generated demo/app scaffolding and Calibration validation. |
+| Upload UI and image fields | THS supports `image` fields and `app.features.uploads`; generated UI blocks save/submit until uploads finish. | Current support | Use for the first generated storage demo surface. |
+| Upload adapter metadata | Manifest carries upload provider, runner mode, endpoint, status URL, accepted types, and max bytes. | Current support | Extend with FOC Platform coordinator/account/dataset/copy metadata. |
+| Netlify FOC upload scaffold | Builder emits Netlify functions and `NETLIFY-UPLOADS.md` when schema opts into Filecoin upload deployment. | Current support, runtime proof pending | Use as a scaffold path, but do not mark production-ready until deployed and validated. |
+| Remote/`foc-process` upload runner | Standalone adapter can run local or `foc-process` mode backed by `foc-cli upload`. | Current support | Use for early coordinator prototypes; production should prefer direct Synapse SDK or hosted coordinator integration. |
+| Transaction UX | Manifest and generated UI support `userPays` and `sponsored` modes. | Current support | Use for generated UX; production relay policy remains a platform security decision. |
+| `RequestUploadParams` | Generic schema fields can represent pieces of the form; platform-specific `accountId`, idempotency, max cost, expiry, requested copies, and CDN policy need first-class semantics. | THS extension needed | Add `app.focPlatform` fields and generated form/relay mapping. |
+| `StorageObject` | Generated collections can store object-like records, but status transitions, compact receipts, reservation fields, and coordinator ownership are protocol-specific. | Generated custom module needed | Generate read/admin views now; require a custom module or hand-written registry for production semantics. |
+| `AccountUsage` | Generic collections/indexes do not currently prove aggregate quota, reserved cost, active byte, and finalized/failure counter invariants. | Generated custom module needed | Use generated dashboards against contract views/events; implement accounting in section 6.7 surface. |
+| `CopyReceipt` and `UploadReceipt` | Upload runtime returns URL/CID/provider-style metadata, but section 6.7 needs provider ids, dataset ids, piece ids, tx hashes, receipt hashes, multi-copy counts, and finalization status. | Hand-written platform contract needed | Keep receipt structs in the platform contract until builder has a custom FOC module. |
+| `CoordinatorPolicy` | Current builder has upload runner configuration but not allowlisted coordinator policy with expiry and permissions hash. | Generated custom module needed | Treat coordinator policy as Platform Contract state; generate admin UI only after mapping is specified. |
+| `DatasetRecord` | Current Filecoin upload examples know the provider class, but do not model per-account dataset attribution and multi-copy provider tuples. | THS extension needed | Add manifest/schema fields for account, dataset, provider, storage class, CDN, and copy policy. |
+| `PolicyConfig` | Builder can generate config/admin surfaces, but platform quota/cost/TTL/failure-charge rules are not generic CRUD rules. | Generated custom module needed | Generate operator controls around the section 6.7 policy surface. |
+| Lifecycle functions | Generic CRUD covers create/update/delete-like flows, not `requestUpload`, `startUpload`, `finalizeUpload`, `failUpload`, `cancelUpload`, and `expireUpload` with constrained callers and terminal states. | Generated custom module needed | Do not replace section 6.7 with generic CRUD. Generate a custom FOC Platform module or wrap hand-written contracts. |
+| Events and custom errors | Builder can emit generic contract events; section 6.7 requires domain events and errors for reconciliation and UX. | Generated custom module needed | Preserve the section 6.7 events/errors in any generated production module. |
+| Platform API endpoints | Generated app upload endpoints exist for Token Host upload runtime; FOC Platform API also needs request/status/object/usage endpoints bound to contract state. | THS extension needed | Generate the browser/admin/read surfaces, then bind them to platform API/coordinator endpoints. |
+| Reconciliation/admin views | Generated UI can render collections and custom pages; current FOC-specific reconciliation views are not built. | THS extension needed | Generate object receipt, usage, dataset/copy, coordinator, and runway views from the platform manifest. |
+
+### 10.3 Schema extension contract
+
+The builder should grow an explicit `app.focPlatform` extension rather than overloading generic app fields. Draft surface:
 
 ```json
 {
@@ -1768,17 +1815,22 @@ Potential schema surface:
     "focPlatform": {
       "paymentMode": "platformWallet | smartAccount | contractTreasury | userPays | hybrid",
       "billingMode": "prepaid | credit | quotaOnly | hybrid",
-      "coordinatorMode": "local | remote | netlify | worker | sdk",
+      "coordinatorMode": "hosted | netlify | remote | worker | sdk | browser-assisted",
       "defaultCopies": 2,
-      "allowCDN": true
+      "allowCDN": true,
+      "accountIdSource": "wallet | platformUserHash | apiRelay",
+      "idempotency": "required",
+      "receiptMode": "compactHashWithEvents",
+      "datasetStrategy": "perAccountProviderClass",
+      "contractMode": "handWrittenRegistry | generatedFocModule | genericCrudPrototype"
     }
   }
 }
 ```
 
-### 10.2 Generated collections
+### 10.4 Generated collections and indexes
 
-Token Host MAY generate base collections/contracts for:
+Token Host Builder SHOULD generate collections and indexes for app/read/admin scaffolding even when the authoritative v1 contract is hand-written. Required generated or generated-view concepts:
 
 - `StorageObject`,
 - `UploadRequest`,
@@ -1789,21 +1841,21 @@ Token Host MAY generate base collections/contracts for:
 - `Coordinator`,
 - `BillingPlan`.
 
-### 10.3 Generated indexes
+Useful indexes and generated read paths:
 
-Useful indexes:
-
-- objects by user,
+- objects by account/user,
 - objects by status,
-- objects by CID hash,
-- requests by status,
-- usage events by user,
-- datasets by provider,
-- copies by object.
+- objects by content or PieceCID hash,
+- requests by account/idempotency key,
+- requests by status and expiry,
+- usage events by account,
+- datasets by account/provider/storage class/CDN mode,
+- copies by object/provider/dataset,
+- coordinator records by address and expiry.
 
-### 10.4 Generated UI/admin
+### 10.5 Generated UI/admin
 
-Token Host MAY emit:
+Token Host Builder SHOULD emit:
 
 - user object browser,
 - upload form,
@@ -1813,7 +1865,9 @@ Token Host MAY emit:
 - FOC account runway view,
 - object detail with PieceCID/provider/dataset receipts.
 
-### 10.5 Upload adapter evolution
+The first useful admin surface should not wait for all production contract generation. It can read a hand-written `FocPlatformRegistry` ABI and generated manifest metadata while builder work continues toward a custom FOC module.
+
+### 10.6 Upload adapter and coordinator evolution
 
 Current Token Host upload adapters can prototype FOC upload via `foc-cli`. Production SHOULD prefer direct Synapse SDK integration.
 
@@ -1824,6 +1878,27 @@ Potential coordinator modes:
 3. `remote`: platform-hosted upload service.
 4. `worker`: background worker / serverless queue.
 5. `browser-assisted`: client uploads bytes, coordinator finalizes.
+
+The generated upload contract between browser/app, adapter, coordinator, and Platform Contract should include:
+
+- upload endpoint and status endpoint,
+- account id source and relayer policy,
+- object/request id mapping,
+- declared size/content commitment,
+- requested copy count and CDN mode,
+- coordinator mode,
+- finalization callback target,
+- receipt hash/copy receipt shape,
+- failure and retry semantics.
+
+### 10.7 Builder follow-up issues
+
+Focused `tokenhost/tokenhost-builder` child issues are open for the confirmed builder gaps:
+
+- [tokenhost-builder#79](https://github.com/tokenhost/tokenhost-builder/issues/79): `app.focPlatform` schema and manifest extension,
+- [tokenhost-builder#80](https://github.com/tokenhost/tokenhost-builder/issues/80): FOC Platform registry lifecycle generation or wrapper mode,
+- [tokenhost-builder#81](https://github.com/tokenhost/tokenhost-builder/issues/81): generated FOC Platform admin and reconciliation surfaces,
+- [tokenhost-builder#82](https://github.com/tokenhost/tokenhost-builder/issues/82): receipt-aware upload runner path.
 
 ## 11. Synapse SDK Requirements / Opportunities
 
@@ -2010,7 +2085,8 @@ If a required action does not create a transaction, link the SDK log, provider r
 | Contract treasury payer | Ship in v1 / Gate / Defer |  |  |
 | Smart-account payer | Ship in v1 / Gate / Defer |  |  |
 | Direct browser upload | Ship in v1 / Gate / Defer |  |  |
-| Token Host generation | Ship in v1 / Gate / Defer |  |  |
+| Token Host Builder scaffolding | Ship in v1 / Gate / Defer |  |  |
+| Token Host generated FOC module | Ship in v1 / Gate / Defer |  |  |
 ```
 
 ## 14. MVP Options
@@ -2020,9 +2096,9 @@ If a required action does not create a transaction, link the SDK log, provider r
 - Platform KMS/EOA pays FOC.
 - Contracts track users, objects, requests, and usage.
 - Coordinator is trusted and allowlisted.
-- Token Host may later generate registry/usage UI, but is not required for v1.
+- Token Host Builder generates or scaffolds the app, admin/read UI, upload adapters, manifest metadata, and transaction UX around the platform contract/API surface.
 
-This is the canonical v1 implementation path for this spec revision. Token Host generation is useful for demos and admin UI, but the production contract/API surface in section 6.7 is the source of truth.
+This is the canonical v1 implementation path for this spec revision. Token Host Builder is first-class for scaffolding and demos, but the production contract/API surface in section 6.7 is the source of truth until a generated FOC Platform module proves compatibility.
 
 ### 14.2 Post-v1 option: Prepaid treasury + EOA executor
 
@@ -2041,12 +2117,12 @@ This gives stronger billing/accounting semantics.
 
 This is more onchain-native but higher risk.
 
-### 14.4 Demo/generator option: Token Host generated demo app
+### 14.4 First scaffold path: Token Host generated platform app
 
 - Use Token Host Builder to generate a Filecoin Calibration demo app.
 - Image uploads go through FOC coordinator.
-- Object/usage state is stored in generated contracts.
-- Good for public demo and iterative design.
+- Object/usage state is either read from the hand-written section 6.7 registry or stored in a generated prototype that is clearly marked non-production until compatibility is proven.
+- Good for public demo, admin/read UX, upload adapter validation, sponsored transaction UX, and iterative design.
 
 ## 15. Security Considerations
 
@@ -2146,7 +2222,7 @@ Open reconciliation choices:
 
 ## 18. Open Questions
 
-The v1 decisions are defined in the V1 Architecture Decisions section and section 6.7. The remaining questions are post-v1 or compatibility-gated decisions that should be closed by Phase 0 evidence, prototypes, and product feedback.
+The v1 decisions are defined in the V1 Architecture Decisions section and section 6.7. Some remaining questions are post-v1 or compatibility-gated decisions; the Token Host Builder questions in section 18.5 are v1 planning questions because the builder is now the preferred scaffolding path.
 
 ### 18.1 Payment, custody, and delegation
 
@@ -2179,9 +2255,9 @@ The v1 decisions are defined in the V1 Architecture Decisions section and sectio
 
 ### 18.5 Implementation path and generated stack
 
-1. Should Token Host generate generic CRUD/ledger contracts, a custom FOC platform module, or only a reference app around hand-written contracts?
+1. Which minimum custom FOC Platform module should Token Host Builder generate first, and which section 6.7 semantics should remain hand-written until proven?
 2. What is the minimum useful admin UI for a platform operator: account runway, coordinator status, object receipts, usage ledger, or all of these?
-3. Which deployment should be the canonical first demo: Calibration platform-hosted coordinator, direct-to-FOC browser upload, Token Host generated app, or a combined demo?
+3. Which deployment should be the canonical first demo: Calibration platform-hosted coordinator with Token Host generated app, Netlify upload scaffold, remote adapter, or a combined demo?
 4. Which choices should be fixed before writing production contracts, and which can remain runtime configuration?
 
 ## 19. Proposed Phases
@@ -2192,19 +2268,23 @@ The v1 decisions are defined in the V1 Architecture Decisions section and sectio
 - Prove the platform EOA/KMS payer plus session-key coordinator path on Calibration.
 - Collect transaction hashes and logs for contract-wallet, treasury, smart-account, browser-direct, expiry, and reconciliation gates.
 - Document current Synapse SDK assumptions and identify required SDK changes.
+- Complete the Token Host Builder compatibility matrix in section 10.2 against the current builder checkout and open focused child issues for confirmed builder gaps.
+- Validate the smallest current Token Host Builder Filecoin upload scaffold after installing builder dependencies, such as `th build apps/example/microblog.schema.json --chain filecoin_calibration --out /tmp/foc-platform-th-audit --no-ui`.
 
-### Phase 1: Onchain registry prototype
+### Phase 1: Token Host scaffold plus onchain registry prototype
 
 - Implement the v1 contract/API surface in section 6.7.
 - Add upload request, start, finalize, fail, cancel, and expire flows.
 - Build the allowlisted hosted coordinator with Synapse SDK and FOC session keys.
 - Store object, receipt, copy, dataset, and usage state onchain.
+- Generate or scaffold the first Token Host Builder app/admin/read surface against the v1 contract/API surface.
+- Wire generated upload adapter metadata and transaction mode metadata into the platform demo.
 
-### Phase 2: Token Host Builder integration
+### Phase 2: Token Host Builder custom module/productization
 
-- Add schema extension or example schema.
-- Generate contracts/UI for platform storage objects.
-- Integrate upload adapter/coordinator.
+- Add the `app.focPlatform` schema extension or reference example schema.
+- Generate the FOC Platform custom module if the compatibility matrix shows it can match section 6.7 semantics.
+- Integrate generated admin/reconciliation views with the platform registry and coordinator.
 - Add Filecoin Calibration deployment path.
 
 ### Phase 3: Billing/treasury modes
@@ -2237,4 +2317,5 @@ The buildout is successful when:
 5. FOC payment/runway health is observable.
 6. The stack supports at least one working managed-wallet mode on Calibration.
 7. The design remains extensible to smart-account or contract-treasury modes.
-8. Token Host Builder can generate or scaffold a meaningful portion of the platform app.
+8. Token Host Builder can generate or scaffold the first platform app, admin/read UI, upload adapter wiring, manifest metadata, and transaction UX.
+9. Any gap between current Token Host Builder output and section 6.7 production semantics is documented in the compatibility matrix and, when concrete, linked to focused `tokenhost-builder` child issues.
