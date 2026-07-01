@@ -308,6 +308,43 @@ test("Token Host generated upload adapter resumes duplicate requests before subm
   assert.equal(registry.objects.size, 1);
 });
 
+test("Token Host generated upload adapter replays completed duplicate requests", async () => {
+  const registry = createMemoryRegistry();
+  const submitUploadBytes = registry.submitUploadBytes.bind(registry);
+  const api = createPlatformApi({ registry });
+  const bytes = new Uint8Array([9, 10, 11, 12]);
+  let submitAttempts = 0;
+
+  registry.submitUploadBytes = async (args) => {
+    submitAttempts += 1;
+    return submitUploadBytes(args);
+  };
+
+  const request = {
+    method: "POST",
+    path: "/storage/tokenhost/upload",
+    headers: {
+      ...platformHeaders("tokenhost-user"),
+      "content-type": "image/png",
+      "x-tokenhost-idempotency-key": "tokenhost-completed-retry-key",
+      "x-tokenhost-upload-filename": "completed-retry.png",
+      "x-tokenhost-upload-size": String(bytes.byteLength),
+    },
+    body: bytes,
+  };
+  const created = await api.handle(request);
+  const replayed = await api.handle(request);
+
+  assert.equal(created.status, 200);
+  assert.equal(replayed.status, 200);
+  assert.equal(replayed.body.ok, true);
+  assert.equal(replayed.body.upload.metadata.objectId, "1");
+  assert.equal(replayed.body.upload.metadata.status, "Committed");
+  assert.equal(submitAttempts, 1);
+  assert.equal(registry.createCalls.length, 2);
+  assert.equal(registry.objects.size, 1);
+});
+
 test("Token Host generated upload adapter rejects empty or mismatched byte uploads", async () => {
   const registry = createMemoryRegistry();
   const api = createPlatformApi({ registry });

@@ -435,6 +435,22 @@ async function handleTokenHostUpload({ registry, account, auth, body, headers })
     request: tokenHostUpload.request,
   });
   const createdObject = createdUpload.object ?? createdUpload.upload ?? createdUpload;
+  if (createdUpload.duplicate) {
+    const existingUpload = await registry.readUploadStatus({
+      objectId: createdObject.objectId,
+      account,
+      auth,
+    });
+    const existingObject =
+      existingUpload.object ?? existingUpload.reads?.object ?? existingUpload.upload ?? existingUpload;
+    if (isTerminalUploadStatus(existingObject.status)) {
+      return {
+        ...existingUpload,
+        tokenHost: tokenHostUpload.tokenHost,
+      };
+    }
+  }
+
   const submitted = await registry.submitUploadBytes({
     objectId: createdObject.objectId,
     account,
@@ -457,7 +473,7 @@ async function createOrResumeTokenHostUpload({ registry, account, auth, request 
   } catch (error) {
     const objectId = duplicateUploadRequestObjectId(error);
     if (!objectId) throw error;
-    return { object: { objectId } };
+    return { object: { objectId }, duplicate: true };
   }
 }
 
@@ -472,6 +488,10 @@ function duplicateUploadRequestObjectId(error) {
   }
   if (typeof objectId === "string" && /^\d+$/.test(objectId)) return objectId;
   return undefined;
+}
+
+function isTerminalUploadStatus(status) {
+  return ["Committed", "Partial", "Failed", "Cancelled", "Expired", "Deleted"].includes(status);
 }
 
 function normalizeTokenHostUploadRequest(body, headers, account) {
