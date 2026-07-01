@@ -55,6 +55,9 @@ const manifest = {
   registry: {
     name: config.registry.name,
     artifactPath: config.registry.artifactPath,
+    readModelPath: config.registry.readModelPath,
+    authoritativeState: config.registry.authoritativeState,
+    directReads: config.registry.directReads,
     sourceName: registryArtifact.sourceName,
     bytecodeSha256: registryArtifact.bytecodeSha256,
     deployedBytecodeSha256: registryArtifact.deployedBytecodeSha256,
@@ -103,16 +106,32 @@ function assertRegistryFunctions(abi) {
 
 function requiredRegistryFunctions() {
   return [
+    "MAX_LIST_LIMIT",
     "requestUpload",
     "startUpload",
     "finalizeUpload",
     "failUpload",
     "cancelUpload",
     "expireUpload",
+    "objectCount",
+    "accountCount",
+    "datasetRecordCount",
+    "coordinatorCount",
+    "relayerCount",
+    "listStorageObjectIds",
+    "listAccountIds",
+    "listAccountObjectIds",
+    "listDatasetKeys",
+    "listCoordinatorAddresses",
+    "listRelayerAddresses",
+    "readBatch",
     "getStorageObject",
     "getAccountUsage",
     "getCopyReceipts",
     "receiptPayer",
+    "getDatasetRecord",
+    "coordinatorPolicies",
+    "isRelayer",
   ];
 }
 

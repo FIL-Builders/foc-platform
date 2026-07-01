@@ -18,9 +18,13 @@ upload adapter wiring. It is not the authoritative storage lifecycle.
   read-only admin/reconciliation projection and routes exposed to wrapper
   metadata until Token Host Builder emits native FOC Platform admin pages.
 - `src/demo/tokenhost-wrapper.mjs`: small client adapter for Token Host-style
-  request/status/object/usage screens.
+  request/status/object/usage screens plus
+  `createTokenHostRegistryDirectReadAdapter` for direct registry read pages.
 - `test/tokenhost-demo.test.mjs`: schema/config, manifest, and API flow smoke
   tests.
+- `test/tokenhost-direct-reads.test.mjs`: direct registry read adapter smoke
+  tests for object, account, dataset, coordinator, relayer, admin, and stale
+  active-cursor restart behavior.
 
 ## Builder Evidence
 
@@ -118,6 +122,15 @@ The wrapper config maps the generated app to the platform API:
 - admin dataset/provider attribution: `GET /admin/storage/datasets`
 - admin coordinator status: `GET /admin/storage/coordinators`
 - admin reconciliation: `GET /admin/storage/reconciliation`
+
+`pnpm build:tokenhost` also emits `registry.directReads` into
+`artifacts/tokenhost/foc-platform-wrapper-manifest.json`. Generated or wrapper
+provided admin/read UIs should use that metadata to discover the Calibration
+chain, registry address source, ABI artifact, max page size, list methods,
+detail methods, dataset key tuple shape, and bounded `readBatch`/multicall
+capability. The repo-local adapter can be passed as the `admin` implementation
+to `createPlatformAdminApi` when a server wrapper wants the existing admin
+routes backed by direct contract views instead of fixture/projection state.
 
 `FocPlatformRegistry` remains authoritative for lifecycle, receipts, usage,
 relayer accountability, coordinator controls, and reconciliation. Generic Token

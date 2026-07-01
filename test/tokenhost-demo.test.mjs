@@ -36,6 +36,26 @@ test("Token Host schema and wrapper config preserve section 6.7 boundaries", asy
   assert.equal(config.mode, "handWrittenRegistryWrapper");
   assert.equal(config.focPlatform.contractMode, "handWrittenRegistry");
   assert.equal(config.focPlatform.accountIdSource, "platformUserHash");
+  assert.equal(config.registry.authoritativeState, "FocPlatformRegistryDirectReads");
+  assert.equal(config.registry.directReads.sourceOfTruth, "FocPlatformRegistryDirectReads");
+  assert.equal(config.registry.directReads.eventProjectionRole, "auditFallbackOnly");
+  assert.equal(config.registry.directReads.chain, "filecoin_calibration");
+  assert.equal(config.registry.directReads.maxPageSize, 50);
+  assert.equal(config.registry.directReads.batch.method, "readBatch");
+  assert.equal(config.registry.directReads.batch.maxCalls, 50);
+  assert.equal(config.registry.directReads.batch.fallback, "viemMulticall");
+  assert.deepEqual(config.registry.directReads.datasetKeyTuple, [
+    "accountId",
+    "providerId",
+    "datasetId",
+  ]);
+  assert.deepEqual(config.registry.directReads.addressSource, {
+    env: "FOC_PLATFORM_REGISTRY_ADDRESS",
+    deploymentMetadata: {
+      path: "artifacts/calibration/demo-evidence.json",
+      jsonPointer: "/registry/address",
+    },
+  });
   assert.deepEqual(config.platformApi.routes, PLATFORM_API_ROUTES);
   assert.equal(config.tokenHostRuntime.generatedUploadEndpoint, "/storage/tokenhost/upload");
   assert.equal(
@@ -60,6 +80,7 @@ test("Token Host schema and wrapper config preserve section 6.7 boundaries", asy
 test("generated Token Host wrapper manifest binds schema, registry, and platform API", async () => {
   const schemaText = await readFile(TOKENHOST_SCHEMA_PATH, "utf8");
   const configText = await readFile(TOKENHOST_CONFIG_PATH, "utf8");
+  const config = JSON.parse(configText);
   const manifest = await readJson(TOKENHOST_MANIFEST_PATH);
 
   assert.equal(manifest.kind, "foc-platform-tokenhost-wrapper");
@@ -72,10 +93,49 @@ test("generated Token Host wrapper manifest binds schema, registry, and platform
   assert.deepEqual(manifest.adminApi.routes, PLATFORM_ADMIN_API_ROUTES);
   assert.equal(manifest.adminApi.projectionPath, "src/admin/reconciliation.mjs");
   assert.equal(manifest.extensions.focPlatform.contractMode, "handWrittenRegistry");
+  assert.equal(manifest.registry.authoritativeState, "FocPlatformRegistryDirectReads");
+  assert.deepEqual(manifest.registry.directReads, config.registry.directReads);
+  assert.equal(manifest.registry.directReads.sourceOfTruth, "FocPlatformRegistryDirectReads");
+  assert.equal(manifest.registry.directReads.maxPageSize, 50);
+  assert.equal(manifest.registry.directReads.listMethods.objects.pagination, "cursor");
+  assert.equal(manifest.registry.directReads.listMethods.accountObjects.pagination, "cursor");
+  assert.equal(manifest.registry.directReads.listMethods.accounts.pagination, "offset");
+  assert.equal(manifest.registry.directReads.listMethods.datasetKeys.pagination, "offset");
+  assert.deepEqual(manifest.registry.directReads.listMethods.datasetKeys.tupleShape, [
+    "accountId",
+    "providerId",
+    "datasetId",
+  ]);
+  assert.equal(manifest.registry.directReads.detailMethods.storageObject.method, "getStorageObject");
+  assert.equal(manifest.registry.directReads.detailMethods.usage.method, "getAccountUsage");
+  assert.equal(manifest.registry.directReads.detailMethods.copyReceipts.method, "getCopyReceipts");
+  assert.equal(manifest.registry.directReads.detailMethods.receiptPayer.method, "receiptPayer");
+  assert.equal(manifest.registry.directReads.detailMethods.datasetRecord.method, "getDatasetRecord");
+  assert.equal(
+    manifest.registry.directReads.detailMethods.coordinatorPolicy.method,
+    "coordinatorPolicies",
+  );
+  assert.equal(manifest.registry.directReads.detailMethods.relayerStatus.method, "isRelayer");
   assert.equal(manifest.tokenHostRuntime.transactionMode, "sponsored");
   assert.ok(manifest.registry.requiredFunctions.includes("finalizeUpload"));
+  assert.ok(manifest.registry.requiredFunctions.includes("MAX_LIST_LIMIT"));
+  assert.ok(manifest.registry.requiredFunctions.includes("readBatch"));
+  assert.ok(manifest.registry.requiredFunctions.includes("listDatasetKeys"));
+  assert.ok(manifest.registry.requiredFunctions.includes("coordinatorPolicies"));
   assert.ok(manifest.screens.some((screen) => screen.id === "usage"));
   assert.ok(manifest.screens.some((screen) => screen.id === "admin-reconciliation"));
+});
+
+test("Token Host wrapper metadata avoids private credential surfaces", async () => {
+  const configText = await readFile(TOKENHOST_CONFIG_PATH, "utf8");
+  const manifestText = await readFile(TOKENHOST_MANIFEST_PATH, "utf8");
+  const combined = `${configText}\n${manifestText}`;
+
+  assert.doesNotMatch(
+    combined,
+    /\b(privateKey|sessionKey|paymentSecret|PRIVATE_KEY|SESSION_KEY|PAYMENT_SECRET)\b/,
+  );
+  assert.doesNotMatch(combined, /private-key|session-key|payment-secret/i);
 });
 
 test("Token Host wrapper client drives the generated byte-upload adapter", async () => {
