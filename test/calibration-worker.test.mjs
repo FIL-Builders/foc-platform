@@ -382,6 +382,16 @@ test("Calibration registry runner validates config evidence against onchain read
       dataset,
     }),
   );
+  assert.doesNotThrow(() =>
+    runner.validateCalibrationEvidenceBeforeMutation({
+      config,
+      objectId,
+      finalObject,
+      copyReceipts,
+      receiptPayer: user,
+      dataset,
+    }),
+  );
   assert.throws(
     () =>
       runner.validateCalibrationEvidenceInputs({
@@ -410,6 +420,35 @@ test("Calibration registry runner validates config evidence against onchain read
         dataset,
       }),
     /copyReceipts\[0\]\.retrievalUrlHash/,
+  );
+  assert.throws(
+    () =>
+      runner.validateCalibrationEvidenceBeforeMutation({
+        config,
+        objectId,
+        finalObject,
+        copyReceipts: [
+          {
+            ...copyReceipts[0],
+            retrievalUrlHash: `0x${"02".repeat(32)}`,
+          },
+        ],
+        receiptPayer: user,
+        dataset,
+      }),
+    /refusing to mutate registry: .*copyReceipts\[0\]\.retrievalUrlHash/,
+  );
+  assert.throws(
+    () =>
+      runner.validateCalibrationEvidenceBeforeMutation({
+        config,
+        objectId,
+        finalObject,
+        copyReceipts,
+        receiptPayer: user,
+        dataset: { ...dataset, storageClass: `0x${"03".repeat(32)}` },
+      }),
+    /refusing to mutate registry: .*dataset\.storageClass/,
   );
 });
 

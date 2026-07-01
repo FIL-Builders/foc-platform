@@ -169,35 +169,66 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
     validateStorageObjectRequestInputs({ config, objectId, object });
   }
 
-  txHashes.recordDataset = await sendAndWait({
-    publicClient,
-    walletClient,
-    config,
-    functionName: "recordDataset",
-    args: [
-      {
-        accountId: config.accountId,
-        payer: config.account.address,
-        providerId: BigInt(config.providerId),
-        datasetId: BigInt(config.datasetId),
-        storageClass: config.storageClass,
-        withCDN: false,
-        createdAt: 0n,
-        updatedAt: 0n,
-      },
-    ],
-  });
-
-  object = await readStorageObject({ publicClient, config, objectId });
-  validateStorageObjectRequestInputs({ config, objectId, object });
-  if (![3, 4].includes(Number(object.status))) {
-    txHashes.finalizeUpload = await sendAndWait({
+  if (isCommittedStorageObject(object)) {
+    const [copyReceipts, receiptPayer, dataset] = await Promise.all([
+      publicClient.readContract({
+        address: config.registryAddress,
+        abi: registryAbi,
+        functionName: "getCopyReceipts",
+        args: [objectId],
+      }),
+      publicClient.readContract({
+        address: config.registryAddress,
+        abi: registryAbi,
+        functionName: "receiptPayer",
+        args: [objectId],
+      }),
+      publicClient.readContract({
+        address: config.registryAddress,
+        abi: registryAbi,
+        functionName: "getDatasetRecord",
+        args: [config.accountId, BigInt(config.providerId), BigInt(config.datasetId)],
+      }),
+    ]);
+    validateCalibrationEvidenceBeforeMutation({
+      config,
+      objectId,
+      finalObject: object,
+      copyReceipts,
+      receiptPayer,
+      dataset,
+    });
+  } else {
+    txHashes.recordDataset = await sendAndWait({
       publicClient,
       walletClient,
       config,
-      functionName: "finalizeUpload",
-      args: [objectId, config.receipt],
+      functionName: "recordDataset",
+      args: [
+        {
+          accountId: config.accountId,
+          payer: config.account.address,
+          providerId: BigInt(config.providerId),
+          datasetId: BigInt(config.datasetId),
+          storageClass: config.storageClass,
+          withCDN: false,
+          createdAt: 0n,
+          updatedAt: 0n,
+        },
+      ],
     });
+
+    object = await readStorageObject({ publicClient, config, objectId });
+    validateStorageObjectRequestInputs({ config, objectId, object });
+    if (!isCommittedStorageObject(object)) {
+      txHashes.finalizeUpload = await sendAndWait({
+        publicClient,
+        walletClient,
+        config,
+        functionName: "finalizeUpload",
+        args: [objectId, config.receipt],
+      });
+    }
   }
 
   const [finalObject, usage, copyReceipts, receiptPayer, dataset] = await Promise.all([
@@ -480,6 +511,73 @@ export function validateCalibrationEvidenceInputs({
   receiptPayer,
   dataset,
 }) {
+  const mismatches = collectCalibrationEvidenceMismatches({
+    config,
+    objectId,
+    finalObject,
+    copyReceipts,
+    receiptPayer,
+    dataset,
+  });
+
+  if (mismatches.length > 0) {
+    throw new Error(
+      `Onchain demo evidence does not match current config; refusing to write evidence: ${mismatches.join("; ")}`,
+    );
+  }
+}
+
+export function validateCalibrationEvidenceBeforeMutation({
+  config,
+  objectId,
+  finalObject,
+  copyReceipts,
+  receiptPayer,
+  dataset,
+}) {
+  const mismatches = collectCalibrationEvidenceMismatches({
+    config,
+    objectId,
+    finalObject,
+    copyReceipts,
+    receiptPayer,
+    dataset,
+  });
+
+  if (mismatches.length > 0) {
+    throw new Error(
+      `Onchain demo evidence does not match current config; refusing to mutate registry: ${mismatches.join("; ")}`,
+    );
+  }
+}
+
+function collectCalibrationEvidenceMismatches({
+  config,
+  objectId,
+  finalObject,
+  copyReceipts,
+  receiptPayer,
+  dataset,
+}) {
+  return [
+    ...collectCommittedObjectEvidenceMismatches({
+      config,
+      objectId,
+      finalObject,
+      copyReceipts,
+      receiptPayer,
+    }),
+    ...collectDatasetRecordMismatches({ config, dataset }),
+  ];
+}
+
+function collectCommittedObjectEvidenceMismatches({
+  config,
+  objectId,
+  finalObject,
+  copyReceipts,
+  receiptPayer,
+}) {
   const mismatches = collectStorageObjectRequestMismatches({
     config,
     objectId,
@@ -487,7 +585,6 @@ export function validateCalibrationEvidenceInputs({
   });
   const objectField = (field) => tupleField(finalObject, field, STORAGE_OBJECT_FIELDS[field]);
   const copyField = (copy, field) => tupleField(copy, field, COPY_RECEIPT_FIELDS[field]);
-  const datasetField = (field) => tupleField(dataset, field, DATASET_RECORD_FIELDS[field]);
   const compare = (label, actual, expected) => {
     if (identityPart(actual) !== identityPart(expected)) {
       mismatches.push(`${label} expected ${displayPart(expected)} got ${displayPart(actual)}`);
@@ -542,6 +639,18 @@ export function validateCalibrationEvidenceInputs({
     );
   }
 
+  return mismatches;
+}
+
+function collectDatasetRecordMismatches({ config, dataset }) {
+  const mismatches = [];
+  const datasetField = (field) => tupleField(dataset, field, DATASET_RECORD_FIELDS[field]);
+  const compare = (label, actual, expected) => {
+    if (identityPart(actual) !== identityPart(expected)) {
+      mismatches.push(`${label} expected ${displayPart(expected)} got ${displayPart(actual)}`);
+    }
+  };
+
   compare("dataset.accountId", datasetField("accountId"), config.accountId);
   compare("dataset.payer", datasetField("payer"), config.receipt.payer);
   compare("dataset.providerId", datasetField("providerId"), config.providerId);
@@ -549,11 +658,7 @@ export function validateCalibrationEvidenceInputs({
   compare("dataset.storageClass", datasetField("storageClass"), config.storageClass);
   compare("dataset.withCDN", datasetField("withCDN"), false);
 
-  if (mismatches.length > 0) {
-    throw new Error(
-      `Onchain demo evidence does not match current config; refusing to write evidence: ${mismatches.join("; ")}`,
-    );
-  }
+  return mismatches;
 }
 
 export function validateStorageObjectRequestInputs({ config, objectId, object }) {
@@ -594,6 +699,10 @@ function collectStorageObjectRequestMismatches({ config, objectId, object }) {
   compare("object.maxCost", objectField("maxCost"), config.requestParams.maxCost);
 
   return mismatches;
+}
+
+function isCommittedStorageObject(object) {
+  return [3, 4].includes(Number(object?.status ?? object?.[14]));
 }
 
 async function assertOwner({ publicClient, config }) {
