@@ -59,6 +59,7 @@ contract FocPlatformRegistry {
     struct AccountUsage {
         uint256 activeBytes;
         uint256 activeObjects;
+        uint256 pendingBytes;
         uint256 reservedCost;
         uint256 totalActualCost;
         uint256 totalUploadedBytes;
@@ -203,7 +204,8 @@ contract FocPlatformRegistry {
         bytes32 accountId, bytes32 idempotencyKey, uint256 existingObjectId
     );
     error CostExceedsMaximum(uint256 actualCost, uint256 maxCost);
-    error CopyCountMismatch(uint8 completedCopies, uint256 receiptCopies);
+    error RequestedCopyCountMismatch(uint8 receiptRequestedCopies, uint8 objectRequestedCopies);
+    error CopyCountMismatch(uint8 completedCopies, uint256 expectedCopies);
     error ReceiptSizeMismatch(uint64 receiptSize, uint64 objectSize);
     error InvalidPayer();
     error ZeroReceiptHash();
@@ -279,8 +281,11 @@ contract FocPlatformRegistry {
 
         AccountUsage storage usage = _usage[params.accountId];
         uint256 activeBytesBefore = usage.activeBytes;
-        uint256 requestedBytes = uint256(params.size) * params.requestedCopies;
-        if (usage.activeBytes + requestedBytes > policy.maxActiveBytesPerAccount) {
+        uint256 requestedBytes = _requestedBytes(params.size, params.requestedCopies);
+        if (
+            usage.activeBytes + usage.pendingBytes + requestedBytes
+                > policy.maxActiveBytesPerAccount
+        ) {
             revert InvalidPolicy();
         }
 
@@ -290,6 +295,7 @@ contract FocPlatformRegistry {
         _storeRequestedObject(objectId, params, expiresAt);
 
         usage.reservedCost += params.maxCost;
+        usage.pendingBytes += requestedBytes;
         usage.totalRequestedUploads += 1;
 
         emit UsageReserved(params.accountId, objectId, params.maxCost, activeBytesBefore);
@@ -329,6 +335,7 @@ contract FocPlatformRegistry {
 
         AccountUsage storage usage = _usage[objectRef.accountId];
         uint256 releasedCost = objectRef.reservedCost - receipt.actualCost;
+        _releasePendingBytes(usage, objectRef);
         usage.reservedCost -= objectRef.reservedCost;
         usage.totalActualCost += receipt.actualCost;
 
@@ -376,6 +383,7 @@ contract FocPlatformRegistry {
     function failUpload(uint256 objectId, bytes32 reasonHash, uint256 chargedCost) external {
         _requireActiveCoordinator();
         StorageObject storage objectRef = _requireMutableObject(objectId);
+        _requireNotExpired(objectRef);
         _validateFailureCharge(objectRef.reservedCost, chargedCost);
 
         objectRef.status = UploadStatus.Failed;
@@ -384,6 +392,7 @@ contract FocPlatformRegistry {
         objectRef.updatedAt = uint64(block.timestamp);
 
         AccountUsage storage usage = _usage[objectRef.accountId];
+        _releasePendingBytes(usage, objectRef);
         usage.reservedCost -= objectRef.reservedCost;
         usage.totalActualCost += chargedCost;
         usage.totalFailedUploads += 1;
@@ -398,7 +407,9 @@ contract FocPlatformRegistry {
 
         objectRef.status = UploadStatus.Cancelled;
         objectRef.updatedAt = uint64(block.timestamp);
-        _usage[objectRef.accountId].reservedCost -= objectRef.reservedCost;
+        AccountUsage storage usage = _usage[objectRef.accountId];
+        _releasePendingBytes(usage, objectRef);
+        usage.reservedCost -= objectRef.reservedCost;
 
         emit UsageReleased(objectRef.accountId, objectId, objectRef.reservedCost);
         emit UploadCancelled(objectId, objectRef.accountId);
@@ -410,7 +421,9 @@ contract FocPlatformRegistry {
 
         objectRef.status = UploadStatus.Expired;
         objectRef.updatedAt = uint64(block.timestamp);
-        _usage[objectRef.accountId].reservedCost -= objectRef.reservedCost;
+        AccountUsage storage usage = _usage[objectRef.accountId];
+        _releasePendingBytes(usage, objectRef);
+        usage.reservedCost -= objectRef.reservedCost;
 
         emit UsageReleased(objectRef.accountId, objectId, objectRef.reservedCost);
         emit UploadExpired(objectId, objectRef.accountId);
@@ -649,7 +662,7 @@ contract FocPlatformRegistry {
             revert ReceiptSizeMismatch(receipt.size, objectRef.size);
         }
         if (receipt.requestedCopies != objectRef.requestedCopies) {
-            revert CopyCountMismatch(receipt.completedCopies, receipt.copies.length);
+            revert RequestedCopyCountMismatch(receipt.requestedCopies, objectRef.requestedCopies);
         }
         if (receipt.completedCopies != receipt.copies.length) {
             revert CopyCountMismatch(receipt.completedCopies, receipt.copies.length);
@@ -676,7 +689,7 @@ contract FocPlatformRegistry {
     {
         if (receipt.finalizationStatus == UploadFinalizationStatus.Committed) {
             if (receipt.completedCopies != objectRef.requestedCopies) {
-                revert CopyCountMismatch(receipt.completedCopies, receipt.copies.length);
+                revert CopyCountMismatch(receipt.completedCopies, objectRef.requestedCopies);
             }
             return UploadStatus.Committed;
         }
@@ -689,9 +702,15 @@ contract FocPlatformRegistry {
             return UploadStatus.Partial;
         }
         if (receipt.completedCopies != 0) {
-            revert CopyCountMismatch(receipt.completedCopies, receipt.copies.length);
+            revert CopyCountMismatch(receipt.completedCopies, 0);
         }
         return UploadStatus.Failed;
+    }
+
+    function _releasePendingBytes(AccountUsage storage usage, StorageObject storage objectRef)
+        private
+    {
+        usage.pendingBytes -= _requestedBytes(objectRef.size, objectRef.requestedCopies);
     }
 
     function _requireMutableObject(uint256 objectId) private view returns (StorageObject storage) {
@@ -727,6 +746,10 @@ contract FocPlatformRegistry {
         return status == UploadStatus.Committed || status == UploadStatus.Partial
             || status == UploadStatus.Failed || status == UploadStatus.Cancelled
             || status == UploadStatus.Expired || status == UploadStatus.Deleted;
+    }
+
+    function _requestedBytes(uint64 size, uint8 requestedCopies) private pure returns (uint256) {
+        return uint256(size) * requestedCopies;
     }
 
     function _policyHash(PolicyConfig memory config) private pure returns (bytes32) {

@@ -484,6 +484,7 @@ struct StorageObject {
 struct AccountUsage {
   uint256 activeBytes;
   uint256 activeObjects;
+  uint256 pendingBytes;
   uint256 reservedCost;
   uint256 totalActualCost;
   uint256 totalUploadedBytes;
@@ -575,6 +576,12 @@ event UploadFinalized(
   bytes32 receiptHash
 );
 
+event ReceiptPayerRecorded(
+  uint256 indexed objectId,
+  bytes32 indexed accountId,
+  address indexed payer
+);
+
 event CopyRecorded(
   uint256 indexed objectId,
   uint256 indexed providerId,
@@ -653,8 +660,10 @@ error TerminalUploadStatus(uint256 objectId, UploadStatus status);
 error InvalidUploadStatus(uint256 objectId, UploadStatus expected, UploadStatus actual);
 error DuplicateIdempotencyKey(bytes32 accountId, bytes32 idempotencyKey, uint256 existingObjectId);
 error CostExceedsMaximum(uint256 actualCost, uint256 maxCost);
-error CopyCountMismatch(uint8 completedCopies, uint256 receiptCopies);
+error RequestedCopyCountMismatch(uint8 receiptRequestedCopies, uint8 objectRequestedCopies);
+error CopyCountMismatch(uint8 completedCopies, uint256 expectedCopies);
 error ReceiptSizeMismatch(uint64 receiptSize, uint64 objectSize);
+error InvalidPayer();
 error ZeroReceiptHash();
 ```
 
@@ -698,6 +707,7 @@ function getStorageObject(uint256 objectId) external view returns (StorageObject
 function getAccountUsage(bytes32 accountId) external view returns (AccountUsage memory);
 function getCopyReceipts(uint256 objectId) external view returns (CopyReceipt[] memory);
 function isRelayer(address relayer) external view returns (bool);
+function receiptPayer(uint256 objectId) external view returns (address payer);
 function getDatasetRecord(
   bytes32 accountId,
   uint256 providerId,
@@ -713,6 +723,7 @@ function objectByIdempotencyKey(
 
 - `requestUpload` MAY be called by the user directly, any caller relaying a valid `userSignature`, or an allowlisted platform relayer for API-authenticated users. Platform relayers are allowlisted through `setRelayer`; when `userSignature` is empty, `msg.sender` MUST be an allowlisted relayer and the call MUST be treated as a platform-authenticated API request for `params.accountId`.
 - `startUpload`, `finalizeUpload`, `failUpload`, and `recordDataset` are coordinator-only in v1. The caller MUST be allowlisted and unexpired under `CoordinatorPolicy`.
+- `CoordinatorPolicy.maxFinalizeDelay` and `CoordinatorPolicy.permissionsHash` are v1 policy metadata for admin/read surfaces and FOC session-key reconciliation. The registry enforces `allowed` and `sessionKeyExpiresAt`; FOC permission validation remains external to this registry unless a later spec revision defines action-specific permission proofs.
 - `cancelUpload` MAY be called by the user, an allowlisted platform relayer for that account, or an admin while the object is `Requested` or `Uploading`.
 - `expireUpload` MAY be called by anyone after `requestExpiresAt` while the object is `Requested` or `Uploading`.
 - `setCoordinator`, `setPolicy`, and `setRelayer` are admin-only.
@@ -721,7 +732,7 @@ function objectByIdempotencyKey(
 
 | From | To | Function | Required conditions |
 | --- | --- | --- | --- |
-| `None` | `Requested` | `requestUpload` | Policy passes, idempotency key unused, quota or credit reserved, request not expired. |
+| `None` | `Requested` | `requestUpload` | Policy passes, idempotency key unused, quota or credit reserved, pending bytes fit within account limit, request not expired. |
 | `Requested` | `Uploading` | `startUpload` | Caller is active coordinator, request not expired. |
 | `Requested` | `Committed` | `finalizeUpload` | Caller is active coordinator, receipt status is `Committed`, completed copies equal requested copies. |
 | `Uploading` | `Committed` | `finalizeUpload` | Same as above. |
@@ -743,8 +754,10 @@ function objectByIdempotencyKey(
 - Every request MUST have `requestExpiresAt`. If the caller supplies `0`, the contract SHOULD set `requestExpiresAt = block.timestamp + policy.defaultRequestTtl`.
 - `startUpload` MUST revert after expiry. The coordinator should ask the platform API to create a new request when a user still wants the upload.
 - `finalizeUpload` MUST revert after expiry in v1. This keeps expired reservations from becoming chargeable after the user-visible deadline.
+- `failUpload` MUST revert after expiry in v1. Expired requests are released through `expireUpload`, not charged through a late failure.
 - `expireUpload` releases `reservedCost`, preserves the object record for audit, emits `UsageReleased` and `UploadExpired`, and leaves active usage unchanged.
 - `failUpload` releases unused reservation and MAY record `chargedCost` only when `policy.allowFailureCharges == true` for provider-accepted partial work. If `policy.allowFailureCharges == false`, `chargedCost` MUST be zero. `chargedCost` MUST NOT exceed `reservedCost`.
+- `requestUpload` increments `AccountUsage.pendingBytes` by `size * requestedCopies`; `finalizeUpload`, `failUpload`, `cancelUpload`, and `expireUpload` release those pending bytes. Account byte limits are checked against `activeBytes + pendingBytes + requestedBytes`.
 - Partial finalization charges and increments active bytes only for completed copies. Failed or missing copies remain visible through `requestedCopies - completedCopies`.
 - If bytes were uploaded to a provider but not committed to FOC before expiry or failure, the Platform Contract does not count them as active usage. Cleanup and provider-side retry are coordinator responsibilities.
 - Duplicate PieceCID values across different `objectId`s are allowed in v1. Dedupe is a future policy feature and MUST NOT silently merge object ownership or billing records.

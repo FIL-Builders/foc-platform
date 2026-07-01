@@ -1,6 +1,7 @@
 node_modules/
 cache/
 out/
+broadcast/
 coverage/
 dist/
 .env

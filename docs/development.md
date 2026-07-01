@@ -11,6 +11,7 @@ pnpm test
 pnpm test:node
 pnpm test:contracts
 pnpm build:contracts
+pnpm build:artifacts
 ```
 
 ## Environment
@@ -31,3 +32,8 @@ workspace scaffold.
 tracked by issue #8. It must preserve the lifecycle, access-control,
 idempotency, receipt, and accounting semantics in `spec.md` section 6.7. See
 `docs/registry.md` for the current invariant and deferred-semantics notes.
+
+`artifacts/contracts/FocPlatformRegistry.json` is the committed compact ABI and
+bytecode artifact for downstream API, coordinator, generated UI, and read-model
+code. See `docs/deployment.md` for artifact generation, deployment commands,
+and read-model notes.

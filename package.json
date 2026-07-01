@@ -5,10 +5,14 @@
   "type": "module",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
+    "build:artifacts": "forge build && node scripts/generate-registry-artifacts.mjs",
     "build:contracts": "forge build",
     "lint": "node scripts/check-workspace.mjs",
     "test": "pnpm test:node && pnpm test:contracts",
     "test:contracts": "forge test",
     "test:node": "node --test"
+  },
+  "dependencies": {
+    "viem": "^2.54.1"
   }
 }

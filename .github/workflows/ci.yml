@@ -34,3 +34,9 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Build committed artifacts
+        run: pnpm build:artifacts
+
+      - name: Check generated artifacts are current
+        run: git diff --exit-code artifacts/contracts/FocPlatformRegistry.json
