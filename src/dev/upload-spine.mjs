@@ -86,6 +86,7 @@ export async function runDevUploadSpine({ rpcUrl, chain = foundry, accounts } = 
     bytecode: registryArtifact.bytecode,
   });
   const deployReceipt = await publicClient.waitForTransactionReceipt({ hash: deployTx });
+  assertSuccessfulReceipt(deployReceipt, "deploy registry");
   if (!deployReceipt.contractAddress) {
     throw new Error(`registry deployment did not return a contract address: ${deployTx}`);
   }
@@ -94,19 +95,28 @@ export async function runDevUploadSpine({ rpcUrl, chain = foundry, accounts } = 
   const latestBlock = await publicClient.getBlock();
   const requestExpiresAt = latestBlock.timestamp + 3600n;
 
-  await writeAndWait(publicClient, rootClient, registryAddress, "setRelayer", [
-    roles.relayer,
-    true,
-  ]);
-  await writeAndWait(publicClient, rootClient, registryAddress, "setCoordinator", [
-    roles.coordinator,
-    {
-      allowed: true,
-      maxFinalizeDelay: 3600n,
-      sessionKeyExpiresAt: 0n,
-      permissionsHash: DEV_UPLOAD_SPINE_FIXTURE.permissionsHash,
-    },
-  ]);
+  const setRelayerReceipt = await writeAndWait(
+    publicClient,
+    rootClient,
+    registryAddress,
+    "setRelayer",
+    [roles.relayer, true],
+  );
+  const setCoordinatorReceipt = await writeAndWait(
+    publicClient,
+    rootClient,
+    registryAddress,
+    "setCoordinator",
+    [
+      roles.coordinator,
+      {
+        allowed: true,
+        maxFinalizeDelay: 3600n,
+        sessionKeyExpiresAt: 0n,
+        permissionsHash: DEV_UPLOAD_SPINE_FIXTURE.permissionsHash,
+      },
+    ],
+  );
 
   const request = {
     accountId: DEV_UPLOAD_SPINE_FIXTURE.accountId,
@@ -121,10 +131,13 @@ export async function runDevUploadSpine({ rpcUrl, chain = foundry, accounts } = 
     requestExpiresAt,
   };
 
-  await writeAndWait(publicClient, relayerClient, registryAddress, "requestUpload", [
-    request,
-    "0x",
-  ]);
+  const requestReceipt = await writeAndWait(
+    publicClient,
+    relayerClient,
+    registryAddress,
+    "requestUpload",
+    [request, "0x"],
+  );
   const objectId = await publicClient.readContract({
     address: registryAddress,
     abi: registryAbi,
@@ -132,7 +145,13 @@ export async function runDevUploadSpine({ rpcUrl, chain = foundry, accounts } = 
     args: [request.accountId, request.idempotencyKey],
   });
 
-  await writeAndWait(publicClient, coordinatorClient, registryAddress, "startUpload", [objectId]);
+  const startReceipt = await writeAndWait(
+    publicClient,
+    coordinatorClient,
+    registryAddress,
+    "startUpload",
+    [objectId],
+  );
 
   const receipt = {
     finalizationStatus: 0,
@@ -145,10 +164,13 @@ export async function runDevUploadSpine({ rpcUrl, chain = foundry, accounts } = 
     receiptHash: DEV_UPLOAD_SPINE_FIXTURE.receiptHash,
     copies: DEV_UPLOAD_SPINE_FIXTURE.copies,
   };
-  await writeAndWait(publicClient, coordinatorClient, registryAddress, "finalizeUpload", [
-    objectId,
-    receipt,
-  ]);
+  const finalizeReceipt = await writeAndWait(
+    publicClient,
+    coordinatorClient,
+    registryAddress,
+    "finalizeUpload",
+    [objectId, receipt],
+  );
 
   const reads = {
     object: normalizeStorageObject(
@@ -165,7 +187,14 @@ export async function runDevUploadSpine({ rpcUrl, chain = foundry, accounts } = 
     ),
   };
 
-  const events = await readRegistryEvents(publicClient, registryAddress, deployReceipt.blockNumber);
+  const events = await readRegistryReceiptEvents(publicClient, registryAddress, [
+    deployReceipt,
+    setRelayerReceipt,
+    setCoordinatorReceipt,
+    requestReceipt,
+    startReceipt,
+    finalizeReceipt,
+  ]);
   const projection = applyRegistryEvents(events);
   const objectKey = decimal(objectId);
   const demoStatus = createDemoStatus({
@@ -226,29 +255,35 @@ async function writeAndWait(publicClient, walletClient, registryAddress, functio
     functionName,
     args,
   });
-  return publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  assertSuccessfulReceipt(receipt, functionName);
+  return receipt;
 }
 
-async function readRegistryEvents(publicClient, address, fromBlock) {
-  const logs = await publicClient.getLogs({
-    address,
-    fromBlock,
-    toBlock: "latest",
-  });
+async function readRegistryReceiptEvents(publicClient, address, receipts) {
   const blockCache = new Map();
   const events = [];
 
-  for (const log of logs) {
-    const key = decimal(log.blockNumber);
+  for (const receipt of receipts) {
+    const key = decimal(receipt.blockNumber);
     let block = blockCache.get(key);
     if (!block) {
-      block = await publicClient.getBlock({ blockNumber: log.blockNumber });
+      block = await publicClient.getBlock({ blockNumber: receipt.blockNumber });
       blockCache.set(key, block);
     }
-    events.push(decodeRegistryLog({ ...log, blockTimestamp: block.timestamp }));
+    for (const log of receipt.logs) {
+      if (log.address.toLowerCase() !== address.toLowerCase()) continue;
+      events.push(decodeRegistryLog({ ...log, blockTimestamp: block.timestamp }));
+    }
   }
 
   return events;
+}
+
+function assertSuccessfulReceipt(receipt, label) {
+  if (receipt.status !== "success") {
+    throw new Error(`${label} transaction failed: ${receipt.transactionHash}`);
+  }
 }
 
 function createDemoStatus({ objectId, roles, request, receipt, reads, projection }) {
