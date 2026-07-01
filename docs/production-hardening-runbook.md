@@ -40,7 +40,7 @@ issues, PRs, Worker vars, generated UI, or artifacts. The production validation
 profile rejects raw `PRIVATE_KEY`, `PLATFORM_ROOT_PRIVATE_KEY`,
 `COORDINATOR_PRIVATE_KEY`, `FOC_*PRIVATE_KEY`, scoped secret env names, generic
 mnemonic/seed env names, and generic private-key/secret env names when they
-contain raw 64-byte hex material.
+contain raw 64-byte hex material with or without a `0x` prefix.
 
 ## Rate Limits And Timeouts
 

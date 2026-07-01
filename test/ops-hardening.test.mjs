@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 
 import { OpsConfigError, validateOpsConfig } from "../scripts/validate-ops-config.mjs";
 import { runOpsSmoke } from "../scripts/run-ops-smoke.mjs";
+
+const execFileAsync = promisify(execFile);
 
 test("ops validation passes the default demo profile", async () => {
   const result = await validateOpsConfig({
@@ -73,6 +80,55 @@ test("ops validation rejects scoped mnemonic and seed env values in production",
   }
 });
 
+test("ops validation rejects generic unprefixed raw hex secret env values in production", async () => {
+  const rawHexKey = "11".repeat(32);
+
+  for (const key of ["WALLET_PRIVATE_KEY", "DEPLOYER_SECRET"]) {
+    await assert.rejects(
+      () =>
+        validateOpsConfig({
+          env: {
+            FOC_PLATFORM_OPS_PROFILE: "production",
+            [key]: rawHexKey,
+            FOC_PLATFORM_ROOT_KMS_KEY_REF: "projects/example/keyRings/foc/cryptoKeys/root",
+            FOC_COORDINATOR_KMS_KEY_REF: "projects/example/keyRings/foc/cryptoKeys/coordinator",
+            FOC_PLATFORM_ADMIN_AUTH_AUDIENCE: "https://admin.example.invalid",
+          },
+          scanFiles: false,
+        }),
+      (error) => {
+        assert.equal(error instanceof OpsConfigError, true);
+        assert.equal(error.code, "raw_secret_env");
+        assert.deepEqual(error.details.keys, [key]);
+        return true;
+      },
+    );
+  }
+});
+
+test("ops validation rejects concrete unprefixed tracked hex secret material", async () => {
+  const workspaceRoot = await createMinimalOpsWorkspace({
+    "secrets.env": `WALLET_PRIVATE_KEY=${"ab".repeat(32)}\n`,
+  });
+  try {
+    await assert.rejects(
+      () =>
+        validateOpsConfig({
+          env: {},
+          workspaceRoot,
+        }),
+      (error) => {
+        assert.equal(error instanceof OpsConfigError, true);
+        assert.equal(error.code, "tracked_secret_material");
+        assert.deepEqual(error.details.findings.map((finding) => finding.file), ["secrets.env"]);
+        return true;
+      },
+    );
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test("ops validation accepts production KMS refs and bounded limits", async () => {
   const result = await validateOpsConfig({
     env: {
@@ -107,3 +163,43 @@ test("ops smoke covers API duplicate boundary and coordinator idempotency", asyn
   assert.equal(summary.coordinator.uploadCalls, 2);
   assert.equal(summary.coordinator.finalizeCalls, 2);
 });
+
+async function createMinimalOpsWorkspace(files) {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "foc-platform-ops-"));
+  await mkdir(join(workspaceRoot, "docs"), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, "package.json"),
+    `${JSON.stringify(
+      {
+        scripts: {
+          "ops:validate": "node scripts/validate-ops-config.mjs",
+          "ops:smoke": "node scripts/run-ops-smoke.mjs",
+          "test:ops": "node --test test/ops-hardening.test.mjs",
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  await writeFile(
+    join(workspaceRoot, "docs/production-hardening-runbook.md"),
+    [
+      "# Production Hardening Runbook",
+      "## Threat Model",
+      "## Secret Management",
+      "## Rate Limits And Timeouts",
+      "## Reconciliation Runbook",
+      "## Remaining Production Gates",
+      "productionReady",
+      "https://github.com/FIL-Builders/foc-platform/issues/6",
+      "https://github.com/FIL-Builders/foc-platform/issues/11",
+      "",
+    ].join("\n"),
+  );
+  for (const [file, contents] of Object.entries(files)) {
+    await writeFile(join(workspaceRoot, file), contents);
+  }
+  await execFileAsync("git", ["init", "-q"], { cwd: workspaceRoot });
+  await execFileAsync("git", ["add", "."], { cwd: workspaceRoot });
+  return workspaceRoot;
+}
