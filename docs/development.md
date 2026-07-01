@@ -9,6 +9,7 @@ pnpm install
 pnpm lint
 pnpm test
 pnpm test:node
+pnpm test:spine
 pnpm test:contracts
 pnpm build:contracts
 pnpm build:artifacts
@@ -37,3 +38,12 @@ idempotency, receipt, and accounting semantics in `spec.md` section 6.7. See
 bytecode artifact for downstream API, coordinator, generated UI, and read-model
 code. See `docs/deployment.md` for artifact generation, deployment commands,
 and read-model notes.
+
+## Dev Upload Spine
+
+`pnpm test:spine` starts a disposable local Anvil node and exercises the first
+request -> start -> finalize -> object/usage read path through the committed
+registry artifact. The coordinator and receipt are deterministic local fixtures;
+no file bytes move, no Synapse SDK call runs, and no Calibration transaction is
+claimed. See `docs/upload-spine.md` for the mocked boundary and downstream Token
+Host Builder binding shape.
