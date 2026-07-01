@@ -206,6 +206,37 @@ test("Token Host direct read adapter honors admin route hints", async () => {
   ]);
 
   calls.length = 0;
+  const objects = await api.handle({
+    method: "GET",
+    path: "/admin/storage/objects",
+    headers: {},
+  });
+  assert.equal(objects.status, 200);
+  const committedObject = objects.body.objects.find((row) => row.objectId === "1");
+  const uploadingObject = objects.body.objects.find((row) => row.objectId === "2");
+  assert.ok(committedObject);
+  assert.ok(uploadingObject);
+  assert.equal(
+    committedObject.reconciliationStatus,
+    "pending_external_evidence",
+  );
+  assert.equal(uploadingObject.reconciliationStatus, "matched");
+  assert.deepEqual(calls.map((call) => call.functionName), [
+    "listStorageObjectIds",
+    "getStorageObject",
+    "getCopyReceipts",
+    "receiptPayer",
+    "getStorageObject",
+    "getCopyReceipts",
+    "receiptPayer",
+    "listStorageObjectIds",
+    "listDatasetKeys",
+    "getDatasetRecord",
+    "listCoordinatorAddresses",
+    "coordinatorPolicies",
+  ]);
+
+  calls.length = 0;
   const object = await api.handle({
     method: "GET",
     path: "/admin/storage/objects/1",
@@ -213,10 +244,22 @@ test("Token Host direct read adapter honors admin route hints", async () => {
   });
   assert.equal(object.status, 200);
   assert.equal(object.body.object.objectId, "1");
+  assert.equal(
+    object.body.object.datasetAttribution[0].datasetRecordStatus,
+    "recorded",
+  );
+  assert.equal(
+    object.body.object.issues.some((issue) => issue.code === "missing_dataset_record"),
+    false,
+  );
   assert.deepEqual(calls.map((call) => call.functionName), [
     "getStorageObject",
     "getCopyReceipts",
     "receiptPayer",
+    "listDatasetKeys",
+    "getDatasetRecord",
+    "listCoordinatorAddresses",
+    "coordinatorPolicies",
   ]);
 
   calls.length = 0;

@@ -372,8 +372,8 @@ export function createTokenHostRegistryDirectReadAdapter({
     const surfaces = registrySurfacesForRoute(options.route);
 
     if (surfaces.objectId) {
-      await mergeObjectDetail(model, surfaces.objectId);
-      return model;
+      const found = await mergeObjectDetail(model, surfaces.objectId);
+      if (!found) return model;
     }
 
     if (surfaces.objects) await mergeObjectPages(model, pageLimit, options);
@@ -387,10 +387,11 @@ export function createTokenHostRegistryDirectReadAdapter({
 
   async function mergeObjectDetail(model, objectId) {
     const row = await readObjectDetails(objectId);
-    if (!row) return;
+    if (!row) return false;
     model.objects[row.objectId] = row.object;
     model.copyReceipts[row.objectId] = row.copyReceipts;
     model.receiptPayers[row.objectId] = row.receiptPayer;
+    return true;
   }
 
   async function mergeObjectPages(model, pageLimit, options) {
@@ -620,9 +621,9 @@ function uploadLinks(objectId) {
 function registrySurfacesForRoute(route) {
   switch (route?.name) {
     case "object":
-      return { objectId: route.params?.objectId };
+      return { objectId: route.params?.objectId, datasets: true, coordinators: true };
     case "objects":
-      return { objects: true };
+      return { objects: true, datasets: true, coordinators: true };
     case "usage":
       return { objects: true, accounts: true };
     case "datasets":
