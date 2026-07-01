@@ -19,9 +19,43 @@ import { registryAbi } from "../src/registry/read-model.mjs";
 const DEFAULT_RPC_URL = "https://api.calibration.node.glif.io/rpc/v1";
 const DEFAULT_REGISTRY_ADDRESS = "0x7771d916a9d742B1D60597a332C7ABBd5796609c";
 const DEFAULT_EVIDENCE_PATH = "artifacts/calibration/demo-evidence.json";
+const DEMO_NETWORK = "filecoin_calibration";
+const DEMO_CHAIN_ID = 314159;
 const ZERO_BYTES32 = `0x${"0".repeat(64)}`;
 const DEMO_COORDINATOR_MAX_FINALIZE_DELAY = 86_400n;
 const DEFAULT_GAS_LIMIT = 80_000_000n;
+const STORAGE_OBJECT_FIELDS = {
+  objectId: 0,
+  accountId: 1,
+  user: 2,
+  idempotencyKey: 3,
+  contentHash: 4,
+  metadataHash: 5,
+  pieceCidHash: 6,
+  size: 7,
+  requestedCopies: 8,
+  completedCopies: 9,
+  withCDN: 10,
+  maxCost: 11,
+  actualCost: 13,
+  receiptHash: 19,
+};
+const COPY_RECEIPT_FIELDS = {
+  providerId: 0,
+  datasetId: 1,
+  pieceId: 2,
+  addPieceTxHash: 3,
+  retrievalUrlHash: 4,
+  isNewDataSet: 5,
+};
+const DATASET_RECORD_FIELDS = {
+  accountId: 0,
+  payer: 1,
+  providerId: 2,
+  datasetId: 3,
+  storageClass: 4,
+  withCDN: 5,
+};
 const STATUS_LABELS = [
   "None",
   "Requested",
@@ -191,9 +225,23 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
     }),
   ]);
 
+  if (write) {
+    validateCalibrationEvidenceInputs({
+      config,
+      objectId,
+      finalObject,
+      copyReceipts,
+      receiptPayer,
+      dataset,
+    });
+  }
+
   const registryTxHashes = write
     ? mergeRegistryTxHashes(
         await readReusableExistingRegistryTxHashes(config.evidencePath, {
+          registryAddress: config.registryAddress,
+          network: DEMO_NETWORK,
+          chainId: DEMO_CHAIN_ID,
           objectId,
           accountId: config.accountId,
           idempotencyKey: config.idempotencyKey,
@@ -410,11 +458,113 @@ export function reusableRegistryTxHashesFromEvidence(evidence = {}, expectedIden
 
 function matchesDemoEvidenceIdentity(evidence, expectedIdentity) {
   return (
+    identityPart(evidence?.registry?.address) ===
+      identityPart(expectedIdentity.registryAddress) &&
+    identityPart(evidence?.network) === identityPart(expectedIdentity.network) &&
+    identityPart(evidence?.chainId) === identityPart(expectedIdentity.chainId) &&
     identityPart(evidence?.demo?.objectId) === identityPart(expectedIdentity.objectId) &&
     identityPart(evidence?.demo?.accountId) === identityPart(expectedIdentity.accountId) &&
     identityPart(evidence?.demo?.request?.idempotencyKey) ===
       identityPart(expectedIdentity.idempotencyKey)
   );
+}
+
+export function validateCalibrationEvidenceInputs({
+  config,
+  objectId,
+  finalObject,
+  copyReceipts,
+  receiptPayer,
+  dataset,
+}) {
+  const mismatches = [];
+  const objectField = (field) => tupleField(finalObject, field, STORAGE_OBJECT_FIELDS[field]);
+  const copyField = (copy, field) => tupleField(copy, field, COPY_RECEIPT_FIELDS[field]);
+  const datasetField = (field) => tupleField(dataset, field, DATASET_RECORD_FIELDS[field]);
+  const compare = (label, actual, expected) => {
+    if (identityPart(actual) !== identityPart(expected)) {
+      mismatches.push(`${label} expected ${displayPart(expected)} got ${displayPart(actual)}`);
+    }
+  };
+
+  compare("object.objectId", objectField("objectId"), objectId);
+  compare("object.accountId", objectField("accountId"), config.accountId);
+  compare("object.user", objectField("user"), config.requestParams.user);
+  compare(
+    "object.idempotencyKey",
+    objectField("idempotencyKey"),
+    config.requestParams.idempotencyKey,
+  );
+  compare("object.contentHash", objectField("contentHash"), config.requestParams.contentHash);
+  compare("object.metadataHash", objectField("metadataHash"), config.requestParams.metadataHash);
+  compare("object.size", objectField("size"), config.requestParams.size);
+  compare(
+    "object.requestedCopies",
+    objectField("requestedCopies"),
+    config.requestParams.requestedCopies,
+  );
+  compare("object.withCDN", objectField("withCDN"), config.requestParams.withCDN);
+  compare("object.maxCost", objectField("maxCost"), config.requestParams.maxCost);
+  compare("object.pieceCidHash", objectField("pieceCidHash"), config.receipt.pieceCidHash);
+  compare("object.completedCopies", objectField("completedCopies"), config.receipt.completedCopies);
+  compare("object.actualCost", objectField("actualCost"), config.receipt.actualCost);
+  compare("object.receiptHash", objectField("receiptHash"), config.receipt.receiptHash);
+  compare("receiptPayer", receiptPayer, config.receipt.payer);
+
+  const actualCopies = Array.isArray(copyReceipts) ? copyReceipts : [];
+  const expectedCopies = Array.isArray(config.receipt.copies) ? config.receipt.copies : [];
+  if (actualCopies.length !== expectedCopies.length) {
+    mismatches.push(
+      `copyReceipts.length expected ${expectedCopies.length} got ${actualCopies.length}`,
+    );
+  }
+  for (const [index, expectedCopy] of expectedCopies.entries()) {
+    const actualCopy = actualCopies[index];
+    if (!actualCopy) continue;
+    compare(
+      `copyReceipts[${index}].providerId`,
+      copyField(actualCopy, "providerId"),
+      expectedCopy.providerId,
+    );
+    compare(
+      `copyReceipts[${index}].datasetId`,
+      copyField(actualCopy, "datasetId"),
+      expectedCopy.datasetId,
+    );
+    compare(
+      `copyReceipts[${index}].pieceId`,
+      copyField(actualCopy, "pieceId"),
+      expectedCopy.pieceId,
+    );
+    compare(
+      `copyReceipts[${index}].addPieceTxHash`,
+      copyField(actualCopy, "addPieceTxHash"),
+      expectedCopy.addPieceTxHash,
+    );
+    compare(
+      `copyReceipts[${index}].retrievalUrlHash`,
+      copyField(actualCopy, "retrievalUrlHash"),
+      expectedCopy.retrievalUrlHash,
+    );
+    compare(
+      `copyReceipts[${index}].isNewDataSet`,
+      copyField(actualCopy, "isNewDataSet"),
+      expectedCopy.isNewDataSet,
+    );
+  }
+
+  compare("dataset.accountId", datasetField("accountId"), config.accountId);
+  compare("dataset.payer", datasetField("payer"), config.receipt.payer);
+  compare("dataset.providerId", datasetField("providerId"), config.providerId);
+  compare("dataset.datasetId", datasetField("datasetId"), config.datasetId);
+  compare("dataset.storageClass", datasetField("storageClass"), config.storageClass);
+  compare("dataset.withCDN", datasetField("withCDN"), false);
+
+  if (mismatches.length > 0) {
+    throw new Error(
+      `Onchain demo evidence does not match current config; refusing to write evidence: ${mismatches.join("; ")}`,
+    );
+  }
 }
 
 async function assertOwner({ publicClient, config }) {
@@ -491,8 +641,8 @@ function buildEvidence({
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     mode: "calibration_live_evidence",
-    network: "filecoin_calibration",
-    chainId: 314159,
+    network: DEMO_NETWORK,
+    chainId: DEMO_CHAIN_ID,
     registry: {
       address: config.registryAddress,
       deployTxHash: "0xb6a4469ae4bff657326d25dd9989ebae54f03467c8ddee19001b1c114fe70552",
@@ -588,6 +738,14 @@ function compactStringRecord(value) {
 
 function identityPart(value) {
   return String(value ?? "").trim().toLowerCase();
+}
+
+function displayPart(value) {
+  return String(value ?? "<unset>");
+}
+
+function tupleField(value, field, index) {
+  return value?.[field] ?? value?.[index];
 }
 
 function stableJson(value) {

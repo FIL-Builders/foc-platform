@@ -195,6 +195,11 @@ test("Calibration registry runner preserves prior transaction hashes on rerun", 
   const runner = await import(`../scripts/run-calibration-registry-demo.mjs?tx=${Date.now()}`);
   const idempotencyKey = `0x${"66".repeat(32)}`;
   const evidence = {
+    network: "filecoin_calibration",
+    chainId: 314159,
+    registry: {
+      address: REGISTRY,
+    },
     demo: {
       objectId: "42",
       accountId: ACCOUNT_ID,
@@ -210,6 +215,9 @@ test("Calibration registry runner preserves prior transaction hashes on rerun", 
   assert.deepEqual(
     runner.mergeRegistryTxHashes(
       runner.reusableRegistryTxHashesFromEvidence(evidence, {
+        registryAddress: REGISTRY,
+        network: "filecoin_calibration",
+        chainId: 314159,
         objectId: 42n,
         accountId: ACCOUNT_ID,
         idempotencyKey,
@@ -229,6 +237,9 @@ test("Calibration registry runner preserves prior transaction hashes on rerun", 
 
   assert.deepEqual(
     runner.reusableRegistryTxHashesFromEvidence(evidence, {
+      registryAddress: REGISTRY,
+      network: "filecoin_calibration",
+      chainId: 314159,
       objectId: 43n,
       accountId: ACCOUNT_ID,
       idempotencyKey,
@@ -237,6 +248,9 @@ test("Calibration registry runner preserves prior transaction hashes on rerun", 
   );
   assert.deepEqual(
     runner.reusableRegistryTxHashesFromEvidence(evidence, {
+      registryAddress: REGISTRY,
+      network: "filecoin_calibration",
+      chainId: 314159,
       objectId: 42n,
       accountId: `0x${"34".repeat(32)}`,
       idempotencyKey,
@@ -245,10 +259,156 @@ test("Calibration registry runner preserves prior transaction hashes on rerun", 
   );
   assert.deepEqual(
     runner.reusableRegistryTxHashesFromEvidence(evidence, {
+      registryAddress: REGISTRY,
+      network: "filecoin_calibration",
+      chainId: 314159,
       objectId: 42n,
       accountId: ACCOUNT_ID,
       idempotencyKey: `0x${"77".repeat(32)}`,
     }),
     {},
+  );
+  assert.deepEqual(
+    runner.reusableRegistryTxHashesFromEvidence(evidence, {
+      registryAddress: "0x1111111111111111111111111111111111111111",
+      network: "filecoin_calibration",
+      chainId: 314159,
+      objectId: 42n,
+      accountId: ACCOUNT_ID,
+      idempotencyKey,
+    }),
+    {},
+  );
+  assert.deepEqual(
+    runner.reusableRegistryTxHashesFromEvidence(evidence, {
+      registryAddress: REGISTRY,
+      network: "filecoin_calibration",
+      chainId: 314160,
+      objectId: 42n,
+      accountId: ACCOUNT_ID,
+      idempotencyKey,
+    }),
+    {},
+  );
+});
+
+test("Calibration registry runner validates config evidence against onchain reads", async () => {
+  const runner = await import(`../scripts/run-calibration-registry-demo.mjs?validate=${Date.now()}`);
+  const objectId = 42n;
+  const user = "0x0000000000000000000000000000000000001234";
+  const idempotencyKey = `0x${"66".repeat(32)}`;
+  const contentHash = `0x${"aa".repeat(32)}`;
+  const metadataHash = `0x${"bb".repeat(32)}`;
+  const pieceCidHash = `0x${"cc".repeat(32)}`;
+  const receiptHash = `0x${"dd".repeat(32)}`;
+  const addPieceTxHash = `0x${"ee".repeat(32)}`;
+  const retrievalUrlHash = `0x${"ff".repeat(32)}`;
+  const storageClass = `0x${"10".repeat(32)}`;
+  const config = {
+    accountId: ACCOUNT_ID,
+    providerId: "4",
+    datasetId: "12524",
+    storageClass,
+    requestParams: {
+      user,
+      idempotencyKey,
+      contentHash,
+      metadataHash,
+      size: 123n,
+      requestedCopies: 1,
+      withCDN: false,
+      maxCost: 1000n,
+    },
+    receipt: {
+      payer: user,
+      pieceCidHash,
+      completedCopies: 1,
+      actualCost: 0n,
+      receiptHash,
+      copies: [
+        {
+          providerId: 4n,
+          datasetId: 12524n,
+          pieceId: 34n,
+          addPieceTxHash,
+          retrievalUrlHash,
+          isNewDataSet: false,
+        },
+      ],
+    },
+  };
+  const finalObject = {
+    objectId,
+    accountId: ACCOUNT_ID,
+    user,
+    idempotencyKey,
+    contentHash,
+    metadataHash,
+    pieceCidHash,
+    size: 123n,
+    requestedCopies: 1,
+    completedCopies: 1,
+    withCDN: false,
+    maxCost: 1000n,
+    actualCost: 0n,
+    receiptHash,
+  };
+  const copyReceipts = [
+    {
+      providerId: 4n,
+      datasetId: 12524n,
+      pieceId: 34n,
+      addPieceTxHash,
+      retrievalUrlHash,
+      isNewDataSet: false,
+    },
+  ];
+  const dataset = {
+    accountId: ACCOUNT_ID,
+    payer: user,
+    providerId: 4n,
+    datasetId: 12524n,
+    storageClass,
+    withCDN: false,
+  };
+
+  assert.doesNotThrow(() =>
+    runner.validateCalibrationEvidenceInputs({
+      config,
+      objectId,
+      finalObject,
+      copyReceipts,
+      receiptPayer: user,
+      dataset,
+    }),
+  );
+  assert.throws(
+    () =>
+      runner.validateCalibrationEvidenceInputs({
+        config,
+        objectId,
+        finalObject: { ...finalObject, contentHash: `0x${"01".repeat(32)}` },
+        copyReceipts,
+        receiptPayer: user,
+        dataset,
+      }),
+    /object\.contentHash/,
+  );
+  assert.throws(
+    () =>
+      runner.validateCalibrationEvidenceInputs({
+        config,
+        objectId,
+        finalObject,
+        copyReceipts: [
+          {
+            ...copyReceipts[0],
+            retrievalUrlHash: `0x${"02".repeat(32)}`,
+          },
+        ],
+        receiptPayer: user,
+        dataset,
+      }),
+    /copyReceipts\[0\]\.retrievalUrlHash/,
   );
 });
