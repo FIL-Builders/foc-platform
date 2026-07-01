@@ -1815,7 +1815,7 @@ The builder should grow an explicit `app.focPlatform` extension rather than over
     "focPlatform": {
       "paymentMode": "platformWallet | smartAccount | contractTreasury | userPays | hybrid",
       "billingMode": "prepaid | credit | quotaOnly | hybrid",
-      "coordinatorMode": "hosted | netlify | remote | worker | sdk | browser-assisted",
+      "coordinatorMode": "hosted | netlify | remote | worker | foc-process | foc-sdk | browser-assisted",
       "defaultCopies": 2,
       "allowCDN": true,
       "accountIdSource": "wallet | platformUserHash | apiRelay",
@@ -1834,7 +1834,7 @@ Token Host Builder SHOULD generate collections and indexes for app/read/admin sc
 
 - `StorageObject`,
 - `UploadRequest`,
-- `UsageAccount`,
+- `AccountUsage`,
 - `UsageEvent`,
 - `DatasetRecord`,
 - `ProviderCopy`,
@@ -1876,8 +1876,9 @@ Potential coordinator modes:
 1. `foc-process`: shell out to `foc-cli` for quick prototype.
 2. `foc-sdk`: direct Synapse SDK coordinator.
 3. `remote`: platform-hosted upload service.
-4. `worker`: background worker / serverless queue.
-5. `browser-assisted`: client uploads bytes, coordinator finalizes.
+4. `netlify`: generated Netlify functions and background worker scaffold.
+5. `worker`: background worker / serverless queue.
+6. `browser-assisted`: client uploads bytes, coordinator finalizes.
 
 The generated upload contract between browser/app, adapter, coordinator, and Platform Contract should include:
 

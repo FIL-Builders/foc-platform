@@ -55,7 +55,7 @@ The current v1 direction is:
 - FOC session keys for coordinator execution,
 - platform-hosted allowlisted coordinator,
 - onchain request, object, usage, and compact receipt state,
-- Token Host Builder-generated app/admin/read UI, upload adapter, manifest, and sponsored transaction scaffolding,
+- Token Host Builder-generated app/admin/read UI, upload adapters, manifest, and sponsored transaction scaffolding,
 - quota/credit-style accounting before contract-custodied user deposits.
 
 Smart-account payers, contract treasury payment, direct browser-to-FOC upload, BYO coordinators, and stronger proof models remain compatibility-gated future paths. Token Host Builder is the preferred v1 scaffolding path, but the production contract/API semantics in `spec.md` remain authoritative until a generated custom module proves compatibility with the upload lifecycle, coordinator controls, receipts, and usage accounting model.
