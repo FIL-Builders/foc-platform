@@ -529,7 +529,8 @@ function decimalOptional(value) {
 }
 
 function normalizeTokenHostUploadRequest(body, headers, account) {
-  const actualSize = uploadBodySize(body);
+  const bodyBytes = tokenHostUploadBytes(body);
+  const actualSize = bodyBytes ? BigInt(bodyBytes.byteLength) : uploadBodySize(body);
   const declaredSize = header(headers, "x-tokenhost-upload-size");
   const size =
     declaredSize === undefined
@@ -551,6 +552,13 @@ function normalizeTokenHostUploadRequest(body, headers, account) {
       { declaredSize: decimal(size), actualSize: decimal(actualSize) },
     );
   }
+  if (!bodyBytes) {
+    throw new PlatformApiError(
+      400,
+      "invalid_tokenhost_upload_body",
+      "Token Host upload body must be a string or byte array",
+    );
+  }
 
   const fileName = safeTokenHostFileName(header(headers, "x-tokenhost-upload-filename"));
   const contentType = normalizeContentType(header(headers, "content-type"));
@@ -565,9 +573,7 @@ function normalizeTokenHostUploadRequest(body, headers, account) {
       accountId: account.accountId,
       user: account.user,
       idempotencyKey,
-      contentHash: keccak256(
-        stringToHex(`foc-platform-tokenhost-upload-content:v1:${fileName}:${contentType}:${size}`),
-      ),
+      contentHash: keccak256(bodyBytes),
       metadataHash: keccak256(
         stringToHex(`foc-platform-tokenhost-upload-metadata:v1:${fileName}:${contentType}`),
       ),
@@ -590,6 +596,16 @@ function normalizeTokenHostUploadRequest(body, headers, account) {
       size: decimal(size),
     },
   };
+}
+
+function tokenHostUploadBytes(body) {
+  if (typeof body === "string") return new TextEncoder().encode(body);
+  if (body instanceof ArrayBuffer) return new Uint8Array(body);
+  if (ArrayBuffer.isView(body)) {
+    return new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+  }
+  if (Array.isArray(body)) return Uint8Array.from(body);
+  return undefined;
 }
 
 let tokenHostUploadSequence = 0;

@@ -341,10 +341,6 @@ test("Token Host generated upload adapter rejects mismatched duplicate retries",
   };
   const mismatched = {
     ...first,
-    headers: {
-      ...first.headers,
-      "x-tokenhost-upload-filename": "different.png",
-    },
     body: new Uint8Array([9, 10, 11, 12]),
   };
   const failed = await api.handle(first);
