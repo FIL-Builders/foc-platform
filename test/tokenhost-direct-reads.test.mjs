@@ -115,6 +115,49 @@ test("Token Host direct read adapter enforces the configured registry page cap",
   );
 });
 
+test("Token Host direct read adapter honors admin route hints", async () => {
+  const calls = [];
+  const adapter = createTokenHostRegistryDirectReadAdapter({
+    publicClient: createRegistryFixtureClient({ calls }),
+    registryAddress: REGISTRY_ADDRESS,
+    maxPageSize: 2,
+    now: 1_000,
+  });
+  const api = createPlatformAdminApi({
+    admin: adapter,
+    authorizeAdmin: () => ({ admin: true }),
+  });
+
+  const coordinators = await api.handle({
+    method: "GET",
+    path: "/admin/storage/coordinators",
+    headers: {},
+  });
+  assert.equal(coordinators.status, 200);
+  assert.equal(coordinators.body.coordinators.length, 1);
+  assert.equal(coordinators.body.relayers.length, 1);
+  assert.deepEqual(calls.map((call) => call.functionName), [
+    "listCoordinatorAddresses",
+    "coordinatorPolicies",
+    "listRelayerAddresses",
+    "isRelayer",
+  ]);
+
+  calls.length = 0;
+  const object = await api.handle({
+    method: "GET",
+    path: "/admin/storage/objects/1",
+    headers: {},
+  });
+  assert.equal(object.status, 200);
+  assert.equal(object.body.object.objectId, "1");
+  assert.deepEqual(calls.map((call) => call.functionName), [
+    "getStorageObject",
+    "getCopyReceipts",
+    "receiptPayer",
+  ]);
+});
+
 test("Token Host direct read adapter restarts active cursor pages from the registry head", async () => {
   const adapter = createTokenHostRegistryDirectReadAdapter({
     publicClient: createRegistryFixtureClient({ staleActiveCursor: 99n }),
@@ -140,7 +183,7 @@ test("Token Host direct read adapter restarts active cursor pages from the regis
   assert.equal(accountObjectPage.pagination.restarted, true);
 });
 
-function createRegistryFixtureClient({ staleActiveCursor } = {}) {
+function createRegistryFixtureClient({ staleActiveCursor, calls } = {}) {
   const objects = new Map([
     [
       "1",
@@ -226,6 +269,7 @@ function createRegistryFixtureClient({ staleActiveCursor } = {}) {
 
   return {
     async readContract({ functionName, args = [] }) {
+      calls?.push({ functionName, args });
       switch (functionName) {
         case "listStorageObjectIds":
           maybeThrowActiveCursorTraversalLimitExceeded({

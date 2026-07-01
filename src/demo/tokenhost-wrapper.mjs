@@ -130,6 +130,7 @@ export function createTokenHostRegistryDirectReadAdapter({
   maxPageSize = registryDirectReadDefaults.maxPageSize,
   includeTerminal = true,
   maxPagesPerSurface = 100,
+  detailConcurrency = 4,
   now,
 } = {}) {
   if (!publicClient?.readContract) {
@@ -140,6 +141,7 @@ export function createTokenHostRegistryDirectReadAdapter({
   }
 
   const maxLimit = normalizeMaxPageSize(maxPageSize);
+  const maxDetailConcurrency = normalizeConcurrency(detailConcurrency);
 
   async function readContract(read) {
     return await publicClient.readContract(read);
@@ -184,7 +186,7 @@ export function createTokenHostRegistryDirectReadAdapter({
         ),
     });
     const ids = Array.from(page.values, decimalString);
-    const objects = await Promise.all(ids.map((objectId) => readObjectDetails(objectId)));
+    const objects = await mapWithConcurrency(ids, maxDetailConcurrency, readObjectDetails);
 
     return {
       sourceOfTruth: DIRECT_READ_SOURCE,
@@ -213,8 +215,10 @@ export function createTokenHostRegistryDirectReadAdapter({
         registryAccountIdsPageRead(registryAddress, { offset, limit: normalizedLimit }),
       ),
     );
-    const accounts = await Promise.all(
-      accountIds.map(async (accountId) => {
+    const accounts = await mapWithConcurrency(
+      accountIds,
+      maxDetailConcurrency,
+      async (accountId) => {
         const [usage, objectPage] = await Promise.all([
           readContract(registryUsageRead(registryAddress, accountId)),
           readAccountObjectPage(accountId, {
@@ -229,7 +233,7 @@ export function createTokenHostRegistryDirectReadAdapter({
           objectIds: objectPage.ids,
           objectPagination: objectPage.pagination,
         };
-      }),
+      },
     );
 
     return {
@@ -286,8 +290,10 @@ export function createTokenHostRegistryDirectReadAdapter({
         registryDatasetKeysPageRead(registryAddress, { offset, limit: normalizedLimit }),
       ),
     );
-    const datasets = await Promise.all(
-      keys.map(async (key) => {
+    const datasets = await mapWithConcurrency(
+      keys,
+      maxDetailConcurrency,
+      async (key) => {
         const dataset = normalizeRegistryDatasetRecord(
           await readContract(registryDatasetDetailRead(registryAddress, key)),
         );
@@ -295,7 +301,7 @@ export function createTokenHostRegistryDirectReadAdapter({
           key: registryDatasetKeyId(key),
           dataset,
         };
-      }),
+      },
     );
 
     return {
@@ -313,13 +319,15 @@ export function createTokenHostRegistryDirectReadAdapter({
         registryCoordinatorAddressesPageRead(registryAddress, { offset, limit: normalizedLimit }),
       ),
     );
-    const coordinators = await Promise.all(
-      addresses.map(async (coordinator) => ({
+    const coordinators = await mapWithConcurrency(
+      addresses,
+      maxDetailConcurrency,
+      async (coordinator) => ({
         coordinator: lower(coordinator),
         policy: normalizeRegistryCoordinatorPolicy(
           await readContract(registryCoordinatorDetailRead(registryAddress, coordinator)),
         ),
-      })),
+      }),
     );
 
     return {
@@ -337,11 +345,13 @@ export function createTokenHostRegistryDirectReadAdapter({
         registryRelayerAddressesPageRead(registryAddress, { offset, limit: normalizedLimit }),
       ),
     );
-    const relayers = await Promise.all(
-      addresses.map(async (relayer) => ({
+    const relayers = await mapWithConcurrency(
+      addresses,
+      maxDetailConcurrency,
+      async (relayer) => ({
         relayer: lower(relayer),
         allowed: Boolean(await readContract(registryRelayerDetailRead(registryAddress, relayer))),
-      })),
+      }),
     );
 
     return {
@@ -355,14 +365,27 @@ export function createTokenHostRegistryDirectReadAdapter({
   async function readRegistryModel(options = {}) {
     const model = createRegistryReadModel();
     const pageLimit = normalizePageLimit(options.limit ?? maxLimit, maxLimit);
+    const surfaces = registrySurfacesForRoute(options.route);
 
-    await mergeObjectPages(model, pageLimit, options);
-    await mergeAccountPages(model, pageLimit, options);
-    await mergeDatasetPages(model, pageLimit);
-    await mergeCoordinatorPages(model, pageLimit);
-    await mergeRelayerPages(model, pageLimit);
+    if (surfaces.objectId) {
+      await mergeObjectDetail(model, surfaces.objectId);
+      return model;
+    }
+
+    if (surfaces.objects) await mergeObjectPages(model, pageLimit, options);
+    if (surfaces.accounts) await mergeAccountPages(model, pageLimit, options);
+    if (surfaces.datasets) await mergeDatasetPages(model, pageLimit);
+    if (surfaces.coordinators) await mergeCoordinatorPages(model, pageLimit);
+    if (surfaces.relayers) await mergeRelayerPages(model, pageLimit);
 
     return model;
+  }
+
+  async function mergeObjectDetail(model, objectId) {
+    const row = await readObjectDetails(objectId);
+    model.objects[row.objectId] = row.object;
+    model.copyReceipts[row.objectId] = row.copyReceipts;
+    model.receiptPayers[row.objectId] = row.receiptPayer;
   }
 
   async function mergeObjectPages(model, pageLimit, options) {
@@ -463,6 +486,7 @@ export function createTokenHostRegistryDirectReadAdapter({
   return {
     sourceOfTruth: DIRECT_READ_SOURCE,
     maxPageSize: Number(maxLimit),
+    detailConcurrency: maxDetailConcurrency,
     readObjectPage,
     readAccountPage,
     readAccountObjectPage,
@@ -587,6 +611,31 @@ function uploadLinks(objectId) {
   };
 }
 
+function registrySurfacesForRoute(route) {
+  switch (route?.name) {
+    case "object":
+      return { objectId: route.params?.objectId };
+    case "objects":
+      return { objects: true };
+    case "usage":
+      return { accounts: true };
+    case "datasets":
+      return { datasets: true };
+    case "coordinators":
+      return { coordinators: true, relayers: true };
+    case "dashboard":
+    case "reconciliation":
+    default:
+      return {
+        objects: true,
+        accounts: true,
+        datasets: true,
+        coordinators: true,
+        relayers: true,
+      };
+  }
+}
+
 async function readCursorIdsPage({ cursorIdExclusive, includeTerminal, readPage }) {
   const requestedCursorIdExclusive = BigInt(cursorIdExclusive);
   try {
@@ -613,6 +662,24 @@ async function readCursorIdsPage({ cursorIdExclusive, includeTerminal, readPage 
       restartReason: "ActiveCursorTraversalLimitExceeded",
     };
   }
+}
+
+async function mapWithConcurrency(values, concurrency, mapper) {
+  if (values.length === 0) return [];
+  const results = new Array(values.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(values[index], index);
+    }
+  }
+
+  const workerCount = Math.min(concurrency, values.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
 }
 
 function isActiveCursorTraversalLimitExceeded(error) {
@@ -679,6 +746,14 @@ function normalizePageLimit(limit, maxPageSize) {
   if (value < 0n) throw new Error("registry page limit must be non-negative");
   if (value > maxPageSize) {
     throw new Error(`registry page limit ${value} exceeds maxPageSize ${maxPageSize}`);
+  }
+  return value;
+}
+
+function normalizeConcurrency(concurrency) {
+  const value = Number(concurrency);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error("detailConcurrency must be a positive integer");
   }
   return value;
 }
