@@ -55,6 +55,8 @@ test("ops validation rejects scoped mnemonic and seed env values in production",
     "FOC_COORDINATOR_MNEMONIC",
     "WALLET_MNEMONIC",
     "DEPLOYER_SEED",
+    "WALLET_MNEMONIC_PHRASE",
+    "DEPLOYER_SEED_WORDS",
   ];
 
   for (const key of secretKeys) {
@@ -83,7 +85,12 @@ test("ops validation rejects scoped mnemonic and seed env values in production",
 test("ops validation rejects generic unprefixed raw hex secret env values in production", async () => {
   const rawHexKey = "11".repeat(32);
 
-  for (const key of ["WALLET_PRIVATE_KEY", "DEPLOYER_SECRET"]) {
+  for (const key of [
+    "WALLET_PRIVATE_KEY",
+    "DEPLOYER_SECRET",
+    "WALLET_PRIVATE_KEY_HEX",
+    "DEPLOYER_SECRET_HEX",
+  ]) {
     await assert.rejects(
       () =>
         validateOpsConfig({
