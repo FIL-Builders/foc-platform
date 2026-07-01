@@ -794,6 +794,41 @@ test("local hosted coordinator resumes Uploading objects without replaying start
   assert.equal(uploadCalls.length, 1);
 });
 
+test("local hosted coordinator rejects expired Uploading requests before FOC upload", async () => {
+  const registry = createRegistry();
+  registry.status = "Uploading";
+  const uploadCalls = [];
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+    clock: () => 101n,
+  });
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request: requestFixture({ size: 4n, requestExpiresAt: 100n }),
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "request_expired");
+      assert.deepEqual(error.details, {
+        objectId: "1",
+        requestExpiresAt: "100",
+        now: "101",
+      });
+      return true;
+    },
+  );
+
+  assert.equal(registry.startCalls.length, 0);
+  assert.equal(registry.finalizeCalls.length, 0);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 0);
+});
+
 test("local hosted coordinator resumes raw numeric Uploading status without replaying startUpload", async () => {
   const registry = createRegistry();
   registry.status = 2;
@@ -1228,6 +1263,7 @@ function requestFixture({
   requestedCopies = 2,
   contentHash = undefined,
   contentHashAlgorithm = undefined,
+  requestExpiresAt = undefined,
 } = {}) {
   return {
     objectId: "1",
@@ -1238,6 +1274,7 @@ function requestFixture({
     metadataHash: CONTENT_HASH,
     size,
     requestedCopies,
+    requestExpiresAt,
     withCDN: false,
     maxCost: 10n,
   };

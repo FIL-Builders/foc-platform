@@ -80,12 +80,16 @@ export function createLocalHostedCoordinator({
           focClient,
           sessionKey,
           config,
+          clock,
         });
         idempotencyStore.set(key, { state: "completed", result });
         return result;
       } catch (error) {
         const mapped =
-          error?.code === "terminal_upload" || error?.code === "finalize_upload_failed"
+          error?.code === "terminal_upload" ||
+          error?.code === "finalize_upload_failed" ||
+          error?.code === "request_expired" ||
+          error?.code === "invalid_request_expiry"
             ? error
             : await failPreparedUpload({
                 prepared,
@@ -220,7 +224,7 @@ function cachedIdempotencyResult(existing, details) {
   return { hit: false };
 }
 
-async function executePreparedUpload({ prepared, registry, focClient, sessionKey, config }) {
+async function executePreparedUpload({ prepared, registry, focClient, sessionKey, config, clock }) {
   const currentObject = await readUploadObject(registry, prepared);
   if (currentObject?.status && TERMINAL_UPLOAD_STATUSES.includes(currentObject.status)) {
     throw new HostedCoordinatorError("terminal_upload", "terminal upload cannot accept bytes", {
@@ -228,11 +232,13 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
       status: currentObject.status,
     });
   }
+  assertUploadRequestNotExpired({ prepared, object: currentObject, now: clock() });
 
   if (currentObject?.status !== "Uploading") {
     await startOrResumeUploading({ prepared, registry, sessionKey });
   }
 
+  assertUploadRequestNotExpired({ prepared, object: currentObject, now: clock() });
   const synapseResult = await focClient.upload({
     objectId: prepared.objectId,
     request: prepared.request,
@@ -275,6 +281,29 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
   }
 
   return Object.freeze(uploadResult({ prepared, receipt, registryResult: finalizeResult, config }));
+}
+
+function assertUploadRequestNotExpired({ prepared, object, now }) {
+  const requestExpiresAt = expiryValue(object?.requestExpiresAt ?? prepared.request.requestExpiresAt);
+  if (requestExpiresAt === undefined || requestExpiresAt === 0n) return;
+  const currentTime = BigInt(now);
+  if (currentTime <= requestExpiresAt) return;
+  throw new HostedCoordinatorError("request_expired", "upload request is expired", {
+    objectId: String(prepared.objectId),
+    requestExpiresAt: requestExpiresAt.toString(),
+    now: currentTime.toString(),
+  });
+}
+
+function expiryValue(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  try {
+    return BigInt(value);
+  } catch {
+    throw new HostedCoordinatorError("invalid_request_expiry", "upload request expiry is invalid", {
+      requestExpiresAt: value,
+    });
+  }
 }
 
 function uploadResult({ prepared, receipt, registryResult, config }) {
