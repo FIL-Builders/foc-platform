@@ -266,6 +266,34 @@ contract FocPlatformRegistryTest {
         );
     }
 
+    function testActivePaginationRejectsExcessiveStaleCursorTraversal() public {
+        uint256[] memory objectIds = new uint256[](7);
+        for (uint256 i = 0; i < objectIds.length; i++) {
+            FocPlatformRegistry.RequestUploadParams memory params =
+                _paramsFor(ACCOUNT_ID, keccak256(abi.encode("stale-cursor-cap", i)), address(0));
+            vm.prank(RELAYER);
+            objectIds[i] = registry.requestUpload(params, "");
+        }
+
+        for (uint256 i = objectIds.length - 1; i > 0; i--) {
+            registry.cancelUpload(objectIds[i]);
+        }
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FocPlatformRegistry.ActiveCursorTraversalLimitExceeded.selector, objectIds[6], 4
+            )
+        );
+        registry.listStorageObjectIds(objectIds[6], 1, false);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FocPlatformRegistry.ActiveCursorTraversalLimitExceeded.selector, objectIds[6], 4
+            )
+        );
+        registry.listAccountObjectIds(ACCOUNT_ID, objectIds[6], 1, false);
+    }
+
     function testCoordinatorRelayerAndDatasetEnumerationRetainsDisabledRows() public {
         registry.setCoordinator(
             COORDINATOR_TWO,

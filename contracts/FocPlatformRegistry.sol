@@ -217,6 +217,7 @@ contract FocPlatformRegistry {
     error ZeroReceiptHash();
     error ListLimitExceeded(uint256 limit, uint256 maxLimit);
     error ReadBatchCallFailed(uint256 index, bytes returnData);
+    error ActiveCursorTraversalLimitExceeded(uint256 cursorIdExclusive, uint256 maxSteps);
 
     bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256(
         "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
@@ -791,10 +792,13 @@ contract FocPlatformRegistry {
         uint256 currentObjectId =
             cursorIdExclusive == 0 ? _activeObjectHead : _activeObjectNext[cursorIdExclusive];
         uint256[] memory page = new uint256[](_min(_activeObjectCount, limit));
-        uint256 count;
+        uint256 maxSteps = _activeTraversalStepLimit(limit);
         uint256 steps;
-        uint256 maxSteps = limit * 4;
-        while (currentObjectId != 0 && count < page.length && steps < maxSteps) {
+        uint256 count;
+        while (currentObjectId != 0 && count < page.length) {
+            if (steps == maxSteps) {
+                revert ActiveCursorTraversalLimitExceeded(cursorIdExclusive, maxSteps);
+            }
             steps += 1;
             if (_activeObjectIndexed[currentObjectId]) {
                 page[count] = currentObjectId;
@@ -840,10 +844,13 @@ contract FocPlatformRegistry {
         }
 
         uint256[] memory page = new uint256[](limit);
-        uint256 count;
+        uint256 maxSteps = _activeTraversalStepLimit(limit);
         uint256 steps;
-        uint256 maxSteps = limit * 4;
-        while (currentObjectId != 0 && count < limit && steps < maxSteps) {
+        uint256 count;
+        while (currentObjectId != 0 && count < limit) {
+            if (steps == maxSteps) {
+                revert ActiveCursorTraversalLimitExceeded(cursorIdExclusive, maxSteps);
+            }
             steps += 1;
             if (_activeObjectIndexed[currentObjectId]) {
                 page[count] = currentObjectId;
@@ -872,6 +879,10 @@ contract FocPlatformRegistry {
         if (limit == 0 || offset >= length) return 0;
         uint256 remaining = length - offset;
         return _min(remaining, limit);
+    }
+
+    function _activeTraversalStepLimit(uint256 limit) private pure returns (uint256) {
+        return limit * 4;
     }
 
     function _trimUintPage(uint256[] memory page, uint256 count)

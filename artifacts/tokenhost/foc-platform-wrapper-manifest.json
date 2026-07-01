@@ -85,8 +85,8 @@
     "name": "FocPlatformRegistry",
     "artifactPath": "artifacts/contracts/FocPlatformRegistry.json",
     "sourceName": "contracts/FocPlatformRegistry.sol",
-    "bytecodeSha256": "0xc1b22f205e425f5b9b0440910585eed0f11f0afc928ea069761f913b344fe636",
-    "deployedBytecodeSha256": "0x60173755b0391e9592bbd235737ea395253e6eec604d50d79aea91f61ba6ce48",
+    "bytecodeSha256": "0x70a84ae9a3ec837fa12793aca9019cc989b3fc097416519b01760ff56dcc22fa",
+    "deployedBytecodeSha256": "0x2c49443e7a9ebf3337453240e706df249d29f4f217ec948d6c10e9502a199d1f",
     "requiredFunctions": [
       "requestUpload",
       "startUpload",
