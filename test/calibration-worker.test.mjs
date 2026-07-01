@@ -137,3 +137,27 @@ test("Calibration registry runner honors documented upload tx hash env", async (
   );
   assert.equal(runner.normalizeDemoUploadTxHash({}).uploadTxHash, null);
 });
+
+test("Calibration registry runner refreshes expired coordinator policies", async () => {
+  const runner = await import(`../scripts/run-calibration-registry-demo.mjs?policy=${Date.now()}`);
+  const zeroBytes32 = `0x${"00".repeat(32)}`;
+
+  assert.equal(
+    runner.shouldRefreshDemoCoordinatorPolicy({
+      allowed: true,
+      maxFinalizeDelay: 86_400n,
+      sessionKeyExpiresAt: 1n,
+      permissionsHash: zeroBytes32,
+    }),
+    true,
+  );
+  assert.equal(
+    runner.shouldRefreshDemoCoordinatorPolicy({
+      allowed: true,
+      maxFinalizeDelay: 86_400n,
+      sessionKeyExpiresAt: 0n,
+      permissionsHash: zeroBytes32,
+    }),
+    false,
+  );
+});

@@ -20,6 +20,7 @@ const DEFAULT_RPC_URL = "https://api.calibration.node.glif.io/rpc/v1";
 const DEFAULT_REGISTRY_ADDRESS = "0x7771d916a9d742B1D60597a332C7ABBd5796609c";
 const DEFAULT_EVIDENCE_PATH = "artifacts/calibration/demo-evidence.json";
 const ZERO_BYTES32 = `0x${"0".repeat(64)}`;
+const DEMO_COORDINATOR_MAX_FINALIZE_DELAY = 86_400n;
 const DEFAULT_GAS_LIMIT = 80_000_000n;
 const STATUS_LABELS = [
   "None",
@@ -90,7 +91,7 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
 
   await assertOwner({ publicClient, config });
   const coordinatorPolicy = await readCoordinatorPolicy({ publicClient, config });
-  if (!coordinatorPolicy.allowed) {
+  if (shouldRefreshDemoCoordinatorPolicy(coordinatorPolicy)) {
     txHashes.setCoordinator = await sendAndWait({
       publicClient,
       walletClient,
@@ -100,7 +101,7 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
         config.account.address,
         {
           allowed: true,
-          maxFinalizeDelay: 86_400n,
+          maxFinalizeDelay: DEMO_COORDINATOR_MAX_FINALIZE_DELAY,
           sessionKeyExpiresAt: 0n,
           permissionsHash: ZERO_BYTES32,
         },
@@ -339,6 +340,19 @@ export function normalizeDemoUploadTxHash(env = {}) {
     uploadTxHash: rawUploadTxHash ? addPieceTxHash : null,
     addPieceTxHash,
   };
+}
+
+export function shouldRefreshDemoCoordinatorPolicy(policy = {}) {
+  const maxFinalizeDelay = BigInt(policy.maxFinalizeDelay ?? 0);
+  const sessionKeyExpiresAt = BigInt(policy.sessionKeyExpiresAt ?? 0);
+  const permissionsHash = String(policy.permissionsHash ?? "").toLowerCase();
+
+  return (
+    !policy.allowed ||
+    maxFinalizeDelay !== DEMO_COORDINATOR_MAX_FINALIZE_DELAY ||
+    sessionKeyExpiresAt !== 0n ||
+    permissionsHash !== ZERO_BYTES32
+  );
 }
 
 async function assertOwner({ publicClient, config }) {
