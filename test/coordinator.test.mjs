@@ -166,6 +166,26 @@ test("receipt hash is canonical across object key insertion order", () => {
   assert.equal(receiptA.receiptHash, receiptB.receiptHash);
 });
 
+test("receipt mapping rejects completed copy count mismatches", () => {
+  assert.throws(
+    () =>
+      mapSynapseResultToUploadReceipt({
+        payer: PAYER,
+        request: requestFixture({ size: 4n, requestedCopies: 2 }),
+        result: {
+          completedCopies: 2,
+          copies: [copyFixture()],
+        },
+      }),
+    (error) => {
+      assert.equal(error.name, "CoordinatorReceiptError");
+      assert.equal(error.code, "copy_count_mismatch");
+      assert.deepEqual(error.details, { completedCopies: "2", copyCount: "1" });
+      return true;
+    },
+  );
+});
+
 test("upload bytes validate declared size and optional keccak content commitment", () => {
   const bytes = new Uint8Array([1, 2, 3, 4]);
   const contentHash = keccak256(bytes);
@@ -301,6 +321,32 @@ test("local hosted coordinator starts and finalizes through injected adapters", 
   assert.equal(uploadCalls.length, 1);
   assert.equal(replay, first);
   assert.equal(first.mocked.focBytesMoved, false);
+});
+
+test("local hosted coordinator uploads the validated byte snapshot", async () => {
+  const registry = createRegistry();
+  const bytes = new Uint8Array([1, 2, 3, 4]);
+  const uploadCalls = [];
+  registry.startUpload = async (args) => {
+    registry.status = "Uploading";
+    registry.startCalls.push(args);
+    bytes[0] = 99;
+    return { status: registry.status };
+  };
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+
+  const result = await coordinator.executeUpload({
+    objectId: 1n,
+    request: requestFixture({ size: 4n }),
+    bytes,
+  });
+
+  assert.equal(result.status, "Committed");
+  assert.deepEqual(Array.from(bytes), [99, 2, 3, 4]);
+  assert.deepEqual(Array.from(uploadCalls[0].bytes), [1, 2, 3, 4]);
 });
 
 test("local hosted coordinator resumes Uploading objects without replaying startUpload", async () => {

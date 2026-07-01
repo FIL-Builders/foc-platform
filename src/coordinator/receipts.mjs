@@ -83,11 +83,7 @@ export function mapSynapseResultToUploadReceipt({
 
   const requestedCopies = numberOrDefault(request.requestedCopies, 1, "requestedCopies");
   const copies = normalizeCopies(result.copies ?? []);
-  const completedCopies = numberOrDefault(
-    result.completedCopies ?? copies.length,
-    copies.length,
-    "completedCopies",
-  );
+  const completedCopies = normalizeCompletedCopies(result.completedCopies, copies.length);
   const finalizationStatus = resolveFinalizationStatus({
     requestedCopies,
     completedCopies,
@@ -187,8 +183,20 @@ function normalizeCopies(copies) {
   );
 }
 
+function normalizeCompletedCopies(value, copyCount) {
+  const completedCopies = numberOrDefault(value ?? copyCount, copyCount, "completedCopies");
+  if (completedCopies !== copyCount) {
+    throw new CoordinatorReceiptError(
+      "copy_count_mismatch",
+      "completed copy count must match copy receipts",
+      { completedCopies: String(completedCopies), copyCount: String(copyCount) },
+    );
+  }
+  return completedCopies;
+}
+
 function normalizeBytes(bytes) {
-  if (bytes instanceof Uint8Array) return bytes;
+  if (bytes instanceof Uint8Array) return Uint8Array.from(bytes);
   if (typeof bytes === "string") return toBytes(bytes);
   if (Array.isArray(bytes)) {
     bytes.forEach((byte, index) => {
