@@ -107,6 +107,12 @@ contract FocPlatformRegistry {
         uint64 updatedAt;
     }
 
+    struct DatasetKey {
+        bytes32 accountId;
+        uint256 providerId;
+        uint256 datasetId;
+    }
+
     struct PolicyConfig {
         bool paused;
         uint64 maxObjectSize;
@@ -209,6 +215,8 @@ contract FocPlatformRegistry {
     error ReceiptSizeMismatch(uint64 receiptSize, uint64 objectSize);
     error InvalidPayer();
     error ZeroReceiptHash();
+    error ListLimitExceeded(uint256 limit, uint256 maxLimit);
+    error ReadBatchCallFailed(uint256 index, bytes returnData);
 
     bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256(
         "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
@@ -220,6 +228,7 @@ contract FocPlatformRegistry {
     );
     uint256 private constant SECP256K1N_HALF_ORDER =
         0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
+    uint256 public constant MAX_LIST_LIMIT = 50;
 
     address public owner;
     uint256 public nextObjectId = 1;
@@ -233,6 +242,24 @@ contract FocPlatformRegistry {
     mapping(address => CoordinatorPolicy) public coordinatorPolicies;
     mapping(address => bool) private _relayers;
     mapping(bytes32 => mapping(uint256 => mapping(uint256 => DatasetRecord))) private _datasets;
+    bytes32[] private _accountIds;
+    mapping(bytes32 => bool) private _knownAccountIds;
+    mapping(bytes32 => uint256) private _accountObjectHeads;
+    mapping(uint256 => uint256) private _accountObjectNext;
+    uint256 private _activeObjectHead;
+    uint256 private _activeObjectCount;
+    mapping(uint256 => bool) private _activeObjectIndexed;
+    mapping(uint256 => uint256) private _activeObjectPrev;
+    mapping(uint256 => uint256) private _activeObjectNext;
+    mapping(bytes32 => uint256) private _accountActiveObjectHeads;
+    mapping(uint256 => uint256) private _accountActiveObjectPrev;
+    mapping(uint256 => uint256) private _accountActiveObjectNext;
+    address[] private _coordinatorAddresses;
+    mapping(address => bool) private _knownCoordinatorAddresses;
+    address[] private _relayerAddresses;
+    mapping(address => bool) private _knownRelayerAddresses;
+    DatasetKey[] private _datasetKeys;
+    mapping(bytes32 => mapping(uint256 => mapping(uint256 => bool))) private _knownDatasetKeys;
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert UnauthorizedCaller(msg.sender);
@@ -293,6 +320,7 @@ contract FocPlatformRegistry {
         _objectByIdempotencyKey[params.accountId][params.idempotencyKey] = objectId;
 
         _storeRequestedObject(objectId, params, expiresAt);
+        _indexRequestedObject(objectId, params.accountId);
 
         usage.reservedCost += params.maxCost;
         usage.pendingBytes += requestedBytes;
@@ -332,6 +360,7 @@ contract FocPlatformRegistry {
         objectRef.receiptHash = receipt.receiptHash;
         objectRef.updatedAt = uint64(block.timestamp);
         _receiptPayers[objectId] = receipt.payer;
+        _removeActiveObject(objectRef);
 
         AccountUsage storage usage = _usage[objectRef.accountId];
         uint256 releasedCost = objectRef.reservedCost - receipt.actualCost;
@@ -390,6 +419,7 @@ contract FocPlatformRegistry {
         objectRef.coordinator = msg.sender;
         objectRef.actualCost = chargedCost;
         objectRef.updatedAt = uint64(block.timestamp);
+        _removeActiveObject(objectRef);
 
         AccountUsage storage usage = _usage[objectRef.accountId];
         _releasePendingBytes(usage, objectRef);
@@ -407,6 +437,7 @@ contract FocPlatformRegistry {
 
         objectRef.status = UploadStatus.Cancelled;
         objectRef.updatedAt = uint64(block.timestamp);
+        _removeActiveObject(objectRef);
         AccountUsage storage usage = _usage[objectRef.accountId];
         _releasePendingBytes(usage, objectRef);
         usage.reservedCost -= objectRef.reservedCost;
@@ -421,6 +452,7 @@ contract FocPlatformRegistry {
 
         objectRef.status = UploadStatus.Expired;
         objectRef.updatedAt = uint64(block.timestamp);
+        _removeActiveObject(objectRef);
         AccountUsage storage usage = _usage[objectRef.accountId];
         _releasePendingBytes(usage, objectRef);
         usage.reservedCost -= objectRef.reservedCost;
@@ -434,6 +466,10 @@ contract FocPlatformRegistry {
         onlyOwner
     {
         if (coordinator == address(0)) revert UnauthorizedCoordinator(coordinator);
+        if (!_knownCoordinatorAddresses[coordinator]) {
+            _knownCoordinatorAddresses[coordinator] = true;
+            _coordinatorAddresses.push(coordinator);
+        }
         coordinatorPolicies[coordinator] = coordinatorPolicy;
         emit CoordinatorUpdated(
             coordinator,
@@ -452,6 +488,10 @@ contract FocPlatformRegistry {
 
     function setRelayer(address relayer, bool allowed) external onlyOwner {
         if (relayer == address(0)) revert UnauthorizedCaller(relayer);
+        if (!_knownRelayerAddresses[relayer]) {
+            _knownRelayerAddresses[relayer] = true;
+            _relayerAddresses.push(relayer);
+        }
         _relayers[relayer] = allowed;
         emit RelayerUpdated(relayer, allowed);
     }
@@ -462,6 +502,16 @@ contract FocPlatformRegistry {
         DatasetRecord memory stored = dataset;
         if (stored.createdAt == 0) stored.createdAt = uint64(block.timestamp);
         stored.updatedAt = uint64(block.timestamp);
+        if (!_knownDatasetKeys[stored.accountId][stored.providerId][stored.datasetId]) {
+            _knownDatasetKeys[stored.accountId][stored.providerId][stored.datasetId] = true;
+            _datasetKeys.push(
+                DatasetKey({
+                    accountId: stored.accountId,
+                    providerId: stored.providerId,
+                    datasetId: stored.datasetId
+                })
+            );
+        }
         _datasets[stored.accountId][stored.providerId][stored.datasetId] = stored;
         emit DatasetRecorded(
             stored.accountId,
@@ -479,6 +529,113 @@ contract FocPlatformRegistry {
 
     function getAccountUsage(bytes32 accountId) external view returns (AccountUsage memory) {
         return _usage[accountId];
+    }
+
+    function objectCount() external view returns (uint256) {
+        return nextObjectId - 1;
+    }
+
+    function accountCount() external view returns (uint256) {
+        return _accountIds.length;
+    }
+
+    function coordinatorCount() external view returns (uint256) {
+        return _coordinatorAddresses.length;
+    }
+
+    function relayerCount() external view returns (uint256) {
+        return _relayerAddresses.length;
+    }
+
+    function datasetRecordCount() external view returns (uint256) {
+        return _datasetKeys.length;
+    }
+
+    function listStorageObjectIds(uint256 cursorIdExclusive, uint256 limit, bool includeTerminal)
+        external
+        view
+        returns (uint256[] memory ids)
+    {
+        _requireValidListLimit(limit);
+        if (includeTerminal) {
+            return _listAllStorageObjectIds(cursorIdExclusive, limit);
+        }
+        return _listActiveStorageObjectIds(cursorIdExclusive, limit);
+    }
+
+    function listAccountIds(uint256 offset, uint256 limit)
+        external
+        view
+        returns (bytes32[] memory accountIds)
+    {
+        _requireValidListLimit(limit);
+        uint256 pageSize = _boundedOffsetSize(_accountIds.length, offset, limit);
+        accountIds = new bytes32[](pageSize);
+        for (uint256 i = 0; i < pageSize; i++) {
+            accountIds[i] = _accountIds[offset + i];
+        }
+    }
+
+    function listAccountObjectIds(
+        bytes32 accountId,
+        uint256 cursorIdExclusive,
+        uint256 limit,
+        bool includeTerminal
+    ) external view returns (uint256[] memory ids) {
+        _requireValidListLimit(limit);
+        if (includeTerminal) {
+            return _listAllAccountObjectIds(accountId, cursorIdExclusive, limit);
+        }
+        return _listActiveAccountObjectIds(accountId, cursorIdExclusive, limit);
+    }
+
+    function listCoordinatorAddresses(uint256 offset, uint256 limit)
+        external
+        view
+        returns (address[] memory coordinators)
+    {
+        _requireValidListLimit(limit);
+        uint256 pageSize = _boundedOffsetSize(_coordinatorAddresses.length, offset, limit);
+        coordinators = new address[](pageSize);
+        for (uint256 i = 0; i < pageSize; i++) {
+            coordinators[i] = _coordinatorAddresses[offset + i];
+        }
+    }
+
+    function listRelayerAddresses(uint256 offset, uint256 limit)
+        external
+        view
+        returns (address[] memory relayers)
+    {
+        _requireValidListLimit(limit);
+        uint256 pageSize = _boundedOffsetSize(_relayerAddresses.length, offset, limit);
+        relayers = new address[](pageSize);
+        for (uint256 i = 0; i < pageSize; i++) {
+            relayers[i] = _relayerAddresses[offset + i];
+        }
+    }
+
+    function listDatasetKeys(uint256 offset, uint256 limit)
+        external
+        view
+        returns (DatasetKey[] memory keys)
+    {
+        _requireValidListLimit(limit);
+        uint256 pageSize = _boundedOffsetSize(_datasetKeys.length, offset, limit);
+        keys = new DatasetKey[](pageSize);
+        for (uint256 i = 0; i < pageSize; i++) {
+            keys[i] = _datasetKeys[offset + i];
+        }
+    }
+
+    function readBatch(bytes[] calldata calls) external view returns (bytes[] memory results) {
+        _requireValidListLimit(calls.length);
+        results = new bytes[](calls.length);
+        for (uint256 i = 0; i < calls.length; i++) {
+            (bool ok, bytes memory result) = address(this).staticcall(calls[i]);
+            if (!ok) revert ReadBatchCallFailed(i, result);
+            results[i] = result;
+        }
     }
 
     function getCopyReceipts(uint256 objectId) external view returns (CopyReceipt[] memory) {
@@ -548,6 +705,182 @@ contract FocPlatformRegistry {
         objectRef.requestExpiresAt = expiresAt;
         objectRef.createdAt = uint64(block.timestamp);
         objectRef.updatedAt = uint64(block.timestamp);
+    }
+
+    function _indexRequestedObject(uint256 objectId, bytes32 accountId) private {
+        if (!_knownAccountIds[accountId]) {
+            _knownAccountIds[accountId] = true;
+            _accountIds.push(accountId);
+        }
+
+        _accountObjectNext[objectId] = _accountObjectHeads[accountId];
+        _accountObjectHeads[accountId] = objectId;
+
+        _activeObjectIndexed[objectId] = true;
+        _activeObjectNext[objectId] = _activeObjectHead;
+        if (_activeObjectHead != 0) {
+            _activeObjectPrev[_activeObjectHead] = objectId;
+        }
+        _activeObjectHead = objectId;
+        _activeObjectCount += 1;
+
+        uint256 accountActiveHead = _accountActiveObjectHeads[accountId];
+        _accountActiveObjectNext[objectId] = accountActiveHead;
+        if (accountActiveHead != 0) {
+            _accountActiveObjectPrev[accountActiveHead] = objectId;
+        }
+        _accountActiveObjectHeads[accountId] = objectId;
+    }
+
+    function _removeActiveObject(StorageObject storage objectRef) private {
+        uint256 objectId = objectRef.objectId;
+        if (!_activeObjectIndexed[objectId]) return;
+
+        uint256 previousObjectId = _activeObjectPrev[objectId];
+        uint256 nextObjectId_ = _activeObjectNext[objectId];
+        if (previousObjectId == 0) {
+            _activeObjectHead = nextObjectId_;
+        } else {
+            _activeObjectNext[previousObjectId] = nextObjectId_;
+        }
+        if (nextObjectId_ != 0) {
+            _activeObjectPrev[nextObjectId_] = previousObjectId;
+        }
+        delete _activeObjectIndexed[objectId];
+        delete _activeObjectPrev[objectId];
+        // Keep the removed node's next pointer so stale page cursors can continue.
+        _activeObjectCount -= 1;
+
+        uint256 previousAccountObjectId = _accountActiveObjectPrev[objectId];
+        uint256 nextAccountObjectId = _accountActiveObjectNext[objectId];
+        if (previousAccountObjectId == 0) {
+            _accountActiveObjectHeads[objectRef.accountId] = nextAccountObjectId;
+        } else {
+            _accountActiveObjectNext[previousAccountObjectId] = nextAccountObjectId;
+        }
+        if (nextAccountObjectId != 0) {
+            _accountActiveObjectPrev[nextAccountObjectId] = previousAccountObjectId;
+        }
+        delete _accountActiveObjectPrev[objectId];
+        // Keep the removed node's account next pointer for stale account cursors.
+    }
+
+    function _listAllStorageObjectIds(uint256 cursorIdExclusive, uint256 limit)
+        private
+        view
+        returns (uint256[] memory ids)
+    {
+        if (limit == 0) return new uint256[](0);
+        uint256 currentObjectId = _startObjectIdBelow(cursorIdExclusive);
+        uint256[] memory page = new uint256[](limit);
+        uint256 count;
+        while (currentObjectId != 0 && count < limit) {
+            page[count] = currentObjectId;
+            count += 1;
+            currentObjectId -= 1;
+        }
+        return _trimUintPage(page, count);
+    }
+
+    function _listActiveStorageObjectIds(uint256 cursorIdExclusive, uint256 limit)
+        private
+        view
+        returns (uint256[] memory ids)
+    {
+        if (limit == 0 || _activeObjectCount == 0) return new uint256[](0);
+        uint256 currentObjectId =
+            cursorIdExclusive == 0 ? _activeObjectHead : _activeObjectNext[cursorIdExclusive];
+        uint256[] memory page = new uint256[](_min(_activeObjectCount, limit));
+        uint256 count;
+        while (currentObjectId != 0 && count < page.length) {
+            if (_activeObjectIndexed[currentObjectId]) {
+                page[count] = currentObjectId;
+                count += 1;
+            }
+            currentObjectId = _activeObjectNext[currentObjectId];
+        }
+        return _trimUintPage(page, count);
+    }
+
+    function _listAllAccountObjectIds(bytes32 accountId, uint256 cursorIdExclusive, uint256 limit)
+        private
+        view
+        returns (uint256[] memory ids)
+    {
+        if (limit == 0) return new uint256[](0);
+        uint256 currentObjectId = _accountObjectHeads[accountId];
+        if (cursorIdExclusive != 0) {
+            if (_objects[cursorIdExclusive].accountId != accountId) return new uint256[](0);
+            currentObjectId = _accountObjectNext[cursorIdExclusive];
+        }
+
+        uint256[] memory page = new uint256[](limit);
+        uint256 count;
+        while (currentObjectId != 0 && count < limit) {
+            page[count] = currentObjectId;
+            count += 1;
+            currentObjectId = _accountObjectNext[currentObjectId];
+        }
+        return _trimUintPage(page, count);
+    }
+
+    function _listActiveAccountObjectIds(
+        bytes32 accountId,
+        uint256 cursorIdExclusive,
+        uint256 limit
+    ) private view returns (uint256[] memory ids) {
+        if (limit == 0) return new uint256[](0);
+        uint256 currentObjectId = _accountActiveObjectHeads[accountId];
+        if (cursorIdExclusive != 0) {
+            if (_objects[cursorIdExclusive].accountId != accountId) return new uint256[](0);
+            currentObjectId = _accountActiveObjectNext[cursorIdExclusive];
+        }
+
+        uint256[] memory page = new uint256[](limit);
+        uint256 count;
+        while (currentObjectId != 0 && count < limit) {
+            if (_activeObjectIndexed[currentObjectId]) {
+                page[count] = currentObjectId;
+                count += 1;
+            }
+            currentObjectId = _accountActiveObjectNext[currentObjectId];
+        }
+        return _trimUintPage(page, count);
+    }
+
+    function _startObjectIdBelow(uint256 cursorIdExclusive) private view returns (uint256) {
+        uint256 newestObjectId = nextObjectId - 1;
+        if (cursorIdExclusive == 0 || cursorIdExclusive > newestObjectId) return newestObjectId;
+        return cursorIdExclusive - 1;
+    }
+
+    function _requireValidListLimit(uint256 limit) private pure {
+        if (limit > MAX_LIST_LIMIT) revert ListLimitExceeded(limit, MAX_LIST_LIMIT);
+    }
+
+    function _boundedOffsetSize(uint256 length, uint256 offset, uint256 limit)
+        private
+        pure
+        returns (uint256)
+    {
+        if (limit == 0 || offset >= length) return 0;
+        uint256 remaining = length - offset;
+        return _min(remaining, limit);
+    }
+
+    function _trimUintPage(uint256[] memory page, uint256 count)
+        private
+        pure
+        returns (uint256[] memory ids)
+    {
+        ids = new uint256[](count);
+        for (uint256 i = 0; i < count; i++) {
+            ids[i] = page[i];
+        }
+    }
+
+    function _min(uint256 left, uint256 right) private pure returns (uint256) {
+        return left < right ? left : right;
     }
 
     function _emitUploadRequested(
