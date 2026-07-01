@@ -4,6 +4,26 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const DEFAULT_ACCOUNT_NAMESPACE = "foc-platform:v1:demo";
 const UINT64_MAX = (1n << 64n) - 1n;
 const UINT256_MAX = (1n << 256n) - 1n;
+const CONTENT_HASH_ALGORITHMS = Object.freeze(new Set(["keccak256", "identity-bytes32"]));
+const UPLOAD_STATUS_LABELS = Object.freeze([
+  "None",
+  "Requested",
+  "Uploading",
+  "Committed",
+  "Partial",
+  "Failed",
+  "Cancelled",
+  "Expired",
+  "Deleted",
+]);
+const TERMINAL_UPLOAD_STATUSES = Object.freeze([
+  "Committed",
+  "Partial",
+  "Failed",
+  "Cancelled",
+  "Expired",
+  "Deleted",
+]);
 
 export const PLATFORM_API_ROUTES = Object.freeze({
   createUpload: ["POST /storage/upload-requests", "POST /storage/upload"],
@@ -79,6 +99,46 @@ export function normalizeBytes32(value, label) {
     throw new PlatformApiError(400, `invalid_${label}`, `${label} must be a string or bytes32`);
   }
   return keccak256(stringToHex(`foc-platform-${label}:v1:${value}`));
+}
+
+export function normalizeContentHashAlgorithm(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string") {
+    throw new PlatformApiError(
+      400,
+      "invalid_content_hash_algorithm",
+      "contentHashAlgorithm must be a string",
+    );
+  }
+  const normalized = value.toLowerCase();
+  if (!CONTENT_HASH_ALGORITHMS.has(normalized)) {
+    throw new PlatformApiError(
+      400,
+      "unsupported_content_hash_algorithm",
+      "contentHashAlgorithm is not supported",
+      { algorithm: normalized },
+    );
+  }
+  throw new PlatformApiError(
+    400,
+    "unsupported_content_hash_algorithm",
+    "contentHashAlgorithm is not durable for contract-backed upload requests yet",
+    { algorithm: normalized },
+  );
+}
+
+function normalizeContentHash(value, algorithm) {
+  if (algorithm === undefined) {
+    return normalizeBytes32(value, "content_hash");
+  }
+  if (!isBytes32(value)) {
+    throw new PlatformApiError(
+      400,
+      "invalid_content_hash",
+      "contentHash must be a bytes32 when contentHashAlgorithm is supplied",
+    );
+  }
+  return value.toLowerCase();
 }
 
 export function createPlatformApi({
@@ -362,6 +422,7 @@ function normalizeUploadRequest(body, headers, account) {
     uintValue(body.requestedCopies ?? 1, "requestedCopies", { min: 1n, max: 255n }),
   );
   const maxCost = uintValue(body.maxCost ?? 0, "maxCost", { min: 0n, max: UINT256_MAX });
+  const contentHashAlgorithm = normalizeContentHashAlgorithm(body.contentHashAlgorithm);
   const requestExpiresAt =
     body.requestExpiresAt === undefined
       ? undefined
@@ -373,7 +434,8 @@ function normalizeUploadRequest(body, headers, account) {
     idempotencyKey: normalizeIdempotencyKey(
       body.idempotencyKey ?? header(headers, "idempotency-key"),
     ),
-    contentHash: normalizeBytes32(body.contentHash, "content_hash"),
+    contentHash: normalizeContentHash(body.contentHash, contentHashAlgorithm),
+    contentHashAlgorithm,
     metadataHash: normalizeBytes32(body.metadataHash, "metadata_hash"),
     size: size.toString(),
     requestedCopies,
@@ -385,12 +447,31 @@ function normalizeUploadRequest(body, headers, account) {
 
 async function handleTokenHostUpload({ registry, account, auth, body, headers }) {
   const tokenHostUpload = normalizeTokenHostUploadRequest(body, headers, account);
-  const createdUpload = await registry.createUploadRequest({
+  const createdUpload = await createOrResumeTokenHostUpload({
+    registry,
     account,
     auth,
     request: tokenHostUpload.request,
   });
   const createdObject = createdUpload.object ?? createdUpload.upload ?? createdUpload;
+  if (createdUpload.duplicate) {
+    const existingUpload = await registry.readUploadStatus({
+      objectId: createdObject.objectId,
+      account,
+      auth,
+    });
+    const existingObject = normalizeUploadObjectStatus(
+      existingUpload.object ?? existingUpload.reads?.object ?? existingUpload.upload ?? existingUpload,
+    );
+    assertDuplicateTokenHostRequestMatches(existingObject, tokenHostUpload.request);
+    if (isTerminalUploadStatus(existingObject.status)) {
+      return {
+        ...withNormalizedUploadObject(existingUpload, existingObject),
+        tokenHost: tokenHostUpload.tokenHost,
+      };
+    }
+  }
+
   const submitted = await registry.submitUploadBytes({
     objectId: createdObject.objectId,
     account,
@@ -403,8 +484,105 @@ async function handleTokenHostUpload({ registry, account, auth, body, headers })
   };
 }
 
+async function createOrResumeTokenHostUpload({ registry, account, auth, request }) {
+  try {
+    return await registry.createUploadRequest({
+      account,
+      auth,
+      request,
+    });
+  } catch (error) {
+    const objectId = duplicateUploadRequestObjectId(error);
+    if (!objectId) throw error;
+    return { object: { objectId }, duplicate: true };
+  }
+}
+
+function duplicateUploadRequestObjectId(error) {
+  if (!(error instanceof PlatformApiError) || error.code !== "duplicate_idempotency_key") {
+    return undefined;
+  }
+  const objectId = error.details?.objectId;
+  if (typeof objectId === "bigint" && objectId >= 0n) return objectId.toString();
+  if (typeof objectId === "number" && Number.isSafeInteger(objectId) && objectId >= 0) {
+    return String(objectId);
+  }
+  if (typeof objectId === "string" && /^\d+$/.test(objectId)) return objectId;
+  return undefined;
+}
+
+function isTerminalUploadStatus(status) {
+  return TERMINAL_UPLOAD_STATUSES.includes(normalizeUploadStatus(status));
+}
+
+function normalizeUploadObjectStatus(object) {
+  if (!object || typeof object !== "object" || object.status === undefined) return object;
+  const status = normalizeUploadStatus(object.status);
+  if (status === object.status) return object;
+  return { ...object, status };
+}
+
+function normalizeUploadStatus(status) {
+  if (typeof status === "number" && Number.isInteger(status)) {
+    return UPLOAD_STATUS_LABELS[status] ?? status;
+  }
+  if (typeof status === "bigint") {
+    if (status >= 0n && status < BigInt(UPLOAD_STATUS_LABELS.length)) {
+      return UPLOAD_STATUS_LABELS[Number(status)] ?? status;
+    }
+  }
+  if (typeof status === "string" && /^[0-9]+$/.test(status)) {
+    const numericStatus = Number(status);
+    if (Number.isSafeInteger(numericStatus)) return UPLOAD_STATUS_LABELS[numericStatus] ?? status;
+  }
+  return status;
+}
+
+function withNormalizedUploadObject(payload, object) {
+  if (payload?.object !== undefined) return { ...payload, object };
+  if (payload?.reads?.object !== undefined) {
+    return { ...payload, reads: { ...payload.reads, object } };
+  }
+  if (payload?.upload !== undefined) return { ...payload, upload: object };
+  return object;
+}
+
+function assertDuplicateTokenHostRequestMatches(object, request) {
+  const checks = [
+    ["size", object.size, request.size],
+    ["contentHash", lowerOptional(object.contentHash), lowerOptional(request.contentHash)],
+    ["metadataHash", lowerOptional(object.metadataHash), lowerOptional(request.metadataHash)],
+    ["requestedCopies", Number(object.requestedCopies), Number(request.requestedCopies)],
+    ["withCDN", Boolean(object.withCDN), Boolean(request.withCDN)],
+    ["maxCost", decimalOptional(object.maxCost), decimalOptional(request.maxCost)],
+  ];
+
+  for (const [field, existing, requested] of checks) {
+    if (existing !== requested) {
+      throw new PlatformApiError(
+        409,
+        "duplicate_idempotency_mismatch",
+        "idempotency key already created a different Token Host upload",
+        {
+          objectId: decimal(object.objectId),
+          field,
+        },
+      );
+    }
+  }
+}
+
+function lowerOptional(value) {
+  return value === undefined || value === null ? value : String(value).toLowerCase();
+}
+
+function decimalOptional(value) {
+  return value === undefined || value === null || value === "" ? undefined : decimal(value);
+}
+
 function normalizeTokenHostUploadRequest(body, headers, account) {
-  const actualSize = uploadBodySize(body);
+  const bodyBytes = tokenHostUploadBytes(body);
+  const actualSize = bodyBytes ? BigInt(bodyBytes.byteLength) : uploadBodySize(body);
   const declaredSize = header(headers, "x-tokenhost-upload-size");
   const size =
     declaredSize === undefined
@@ -426,6 +604,13 @@ function normalizeTokenHostUploadRequest(body, headers, account) {
       { declaredSize: decimal(size), actualSize: decimal(actualSize) },
     );
   }
+  if (!bodyBytes) {
+    throw new PlatformApiError(
+      400,
+      "invalid_tokenhost_upload_body",
+      "Token Host upload body must be a string or byte array",
+    );
+  }
 
   const fileName = safeTokenHostFileName(header(headers, "x-tokenhost-upload-filename"));
   const contentType = normalizeContentType(header(headers, "content-type"));
@@ -440,9 +625,7 @@ function normalizeTokenHostUploadRequest(body, headers, account) {
       accountId: account.accountId,
       user: account.user,
       idempotencyKey,
-      contentHash: keccak256(
-        stringToHex(`foc-platform-tokenhost-upload-content:v1:${fileName}:${contentType}:${size}`),
-      ),
+      contentHash: keccak256(bodyBytes),
       metadataHash: keccak256(
         stringToHex(`foc-platform-tokenhost-upload-metadata:v1:${fileName}:${contentType}`),
       ),
@@ -453,7 +636,7 @@ function normalizeTokenHostUploadRequest(body, headers, account) {
       requestExpiresAt: undefined,
     },
     bytes: {
-      body,
+      body: bodyBytes,
       byteLength: decimal(actualSize),
       fileName,
       contentType,
@@ -465,6 +648,31 @@ function normalizeTokenHostUploadRequest(body, headers, account) {
       size: decimal(size),
     },
   };
+}
+
+function tokenHostUploadBytes(body) {
+  if (typeof body === "string") return new TextEncoder().encode(body);
+  if (body instanceof ArrayBuffer) return Uint8Array.from(new Uint8Array(body));
+  if (ArrayBuffer.isView(body)) {
+    return Uint8Array.from(new Uint8Array(body.buffer, body.byteOffset, body.byteLength));
+  }
+  if (Array.isArray(body)) return tokenHostUploadByteArray(body);
+  return undefined;
+}
+
+function tokenHostUploadByteArray(body) {
+  for (let index = 0; index < body.length; index += 1) {
+    const byte = body[index];
+    if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+      throw new PlatformApiError(
+        400,
+        "invalid_tokenhost_upload_body",
+        "number-array Token Host upload body must contain integers from 0 to 255",
+        { index, value: byte },
+      );
+    }
+  }
+  return Uint8Array.from(body);
 }
 
 let tokenHostUploadSequence = 0;

@@ -45,7 +45,29 @@ test("POST /storage/upload creates an opaque-account upload request", async () =
   assert.notEqual(response.body.request.accountId, "user@example.com");
   assert.equal(response.body.links.uploadBytes, "/storage/uploads/1/bytes");
   assert.equal(registry.createCalls[0].request.accountId, response.body.request.accountId);
+  assert.equal(registry.createCalls[0].request.contentHashAlgorithm, undefined);
   assert.equal(registry.createCalls[0].request.user, WALLET);
+});
+
+test("POST /storage/upload rejects nondurable bytes32 content hash algorithms", async () => {
+  const registry = createMemoryRegistry();
+  const api = createPlatformApi({ registry });
+  const contentHash = hex32("ab");
+
+  const response = await api.handle({
+    ...createUploadRequest({ idempotencyKey: "committed-content" }),
+    body: {
+      ...createUploadRequest({ idempotencyKey: "committed-content" }).body,
+      contentHash: contentHash.toUpperCase().replace("0X", "0x"),
+      contentHashAlgorithm: "keccak256",
+    },
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error.code, "unsupported_content_hash_algorithm");
+  assert.equal(response.body.error.algorithm, "keccak256");
+  assert.match(response.body.error.message, /not durable/);
+  assert.equal(registry.createCalls.length, 0);
 });
 
 test("duplicate idempotency returns a stable 409 without creating a second object", async () => {
@@ -98,6 +120,21 @@ test("create upload rejects malformed boundary inputs before adapter work", asyn
       requestExpiresAt: "1.5",
     },
   });
+  const unsupportedHashAlgorithm = await api.handle({
+    ...createUploadRequest({ idempotencyKey: "bad-content-hash-algorithm" }),
+    body: {
+      ...createUploadRequest({ idempotencyKey: "bad-content-hash-algorithm" }).body,
+      contentHashAlgorithm: "sha256",
+    },
+  });
+  const opaqueHashWithAlgorithm = await api.handle({
+    ...createUploadRequest({ idempotencyKey: "opaque-content-hash-algorithm" }),
+    body: {
+      ...createUploadRequest({ idempotencyKey: "opaque-content-hash-algorithm" }).body,
+      contentHash: "hello-content",
+      contentHashAlgorithm: "keccak256",
+    },
+  });
 
   assert.equal(badIdempotency.status, 400);
   assert.equal(badIdempotency.body.error.code, "invalid_idempotency_key");
@@ -107,6 +144,10 @@ test("create upload rejects malformed boundary inputs before adapter work", asyn
   assert.equal(negativeCost.body.error.code, "invalid_maxCost");
   assert.equal(fractionalExpiry.status, 400);
   assert.equal(fractionalExpiry.body.error.code, "invalid_requestExpiresAt");
+  assert.equal(unsupportedHashAlgorithm.status, 400);
+  assert.equal(unsupportedHashAlgorithm.body.error.code, "unsupported_content_hash_algorithm");
+  assert.equal(opaqueHashWithAlgorithm.status, 400);
+  assert.equal(opaqueHashWithAlgorithm.body.error.code, "unsupported_content_hash_algorithm");
   assert.equal(registry.createCalls.length, 0);
 });
 
@@ -221,6 +262,220 @@ test("Token Host generated upload adapter accepts bytes and returns upload metad
   assert.equal(upload.body.upload.metadata.objectId, "1");
   assert.equal(registry.createCalls[0].request.size, "4");
   assert.equal(registry.createCalls[0].request.requestedCopies, 2);
+});
+
+test("Token Host generated upload adapter resumes duplicate requests before submitting bytes", async () => {
+  const registry = createMemoryRegistry();
+  const submitUploadBytes = registry.submitUploadBytes.bind(registry);
+  const api = createPlatformApi({ registry });
+  const bytes = new Uint8Array([5, 6, 7, 8]);
+  let submitAttempts = 0;
+
+  registry.submitUploadBytes = async (args) => {
+    submitAttempts += 1;
+    if (submitAttempts === 1) {
+      throw new PlatformApiError(
+        503,
+        "transient_tokenhost_submit_failure",
+        "transient byte submit failure",
+      );
+    }
+    return submitUploadBytes(args);
+  };
+
+  const request = {
+    method: "POST",
+    path: "/storage/tokenhost/upload",
+    headers: {
+      ...platformHeaders("tokenhost-user"),
+      "content-type": "image/png",
+      "x-tokenhost-idempotency-key": "tokenhost-retry-key",
+      "x-tokenhost-upload-filename": "retry.png",
+      "x-tokenhost-upload-size": String(bytes.byteLength),
+    },
+    body: bytes,
+  };
+  const failed = await api.handle(request);
+  const retried = await api.handle(request);
+
+  assert.equal(failed.status, 503);
+  assert.equal(failed.body.error.code, "transient_tokenhost_submit_failure");
+  assert.equal(retried.status, 200);
+  assert.equal(retried.body.ok, true);
+  assert.equal(retried.body.upload.metadata.objectId, "1");
+  assert.equal(submitAttempts, 2);
+  assert.equal(registry.createCalls.length, 2);
+  assert.equal(registry.objects.size, 1);
+});
+
+test("Token Host generated upload adapter rejects mismatched duplicate retries", async () => {
+  const registry = createMemoryRegistry();
+  const submitUploadBytes = registry.submitUploadBytes.bind(registry);
+  const api = createPlatformApi({ registry });
+  const bytes = new Uint8Array([5, 6, 7, 8]);
+  let submitAttempts = 0;
+
+  registry.submitUploadBytes = async (args) => {
+    submitAttempts += 1;
+    if (submitAttempts === 1) {
+      throw new PlatformApiError(
+        503,
+        "transient_tokenhost_submit_failure",
+        "transient byte submit failure",
+      );
+    }
+    return submitUploadBytes(args);
+  };
+
+  const first = {
+    method: "POST",
+    path: "/storage/tokenhost/upload",
+    headers: {
+      ...platformHeaders("tokenhost-user"),
+      "content-type": "image/png",
+      "x-tokenhost-idempotency-key": "tokenhost-mismatch-key",
+      "x-tokenhost-upload-filename": "retry.png",
+      "x-tokenhost-upload-size": String(bytes.byteLength),
+    },
+    body: bytes,
+  };
+  const mismatched = {
+    ...first,
+    body: new Uint8Array([9, 10, 11, 12]),
+  };
+  const failed = await api.handle(first);
+  const rejected = await api.handle(mismatched);
+
+  assert.equal(failed.status, 503);
+  assert.equal(rejected.status, 409);
+  assert.equal(rejected.body.error.code, "duplicate_idempotency_mismatch");
+  assert.equal(rejected.body.error.field, "contentHash");
+  assert.equal(submitAttempts, 1);
+  assert.equal(registry.createCalls.length, 2);
+  assert.equal(registry.objects.size, 1);
+});
+
+test("Token Host generated upload adapter replays completed duplicate requests", async () => {
+  const registry = createMemoryRegistry();
+  const submitUploadBytes = registry.submitUploadBytes.bind(registry);
+  const api = createPlatformApi({ registry });
+  const bytes = new Uint8Array([9, 10, 11, 12]);
+  let submitAttempts = 0;
+
+  registry.submitUploadBytes = async (args) => {
+    submitAttempts += 1;
+    return submitUploadBytes(args);
+  };
+
+  const request = {
+    method: "POST",
+    path: "/storage/tokenhost/upload",
+    headers: {
+      ...platformHeaders("tokenhost-user"),
+      "content-type": "image/png",
+      "x-tokenhost-idempotency-key": "tokenhost-completed-retry-key",
+      "x-tokenhost-upload-filename": "completed-retry.png",
+      "x-tokenhost-upload-size": String(bytes.byteLength),
+    },
+    body: bytes,
+  };
+  const created = await api.handle(request);
+  const replayed = await api.handle(request);
+
+  assert.equal(created.status, 200);
+  assert.equal(replayed.status, 200);
+  assert.equal(replayed.body.ok, true);
+  assert.equal(replayed.body.upload.metadata.objectId, "1");
+  assert.equal(replayed.body.upload.metadata.status, "Committed");
+  assert.equal(submitAttempts, 1);
+  assert.equal(registry.createCalls.length, 2);
+  assert.equal(registry.objects.size, 1);
+});
+
+test("Token Host generated upload adapter replays raw enum terminal duplicates", async () => {
+  const registry = createMemoryRegistry();
+  const submitUploadBytes = registry.submitUploadBytes.bind(registry);
+  const api = createPlatformApi({ registry });
+  const bytes = new Uint8Array([13, 14, 15, 16]);
+  let submitAttempts = 0;
+
+  registry.submitUploadBytes = async (args) => {
+    submitAttempts += 1;
+    return submitUploadBytes(args);
+  };
+
+  const request = {
+    method: "POST",
+    path: "/storage/tokenhost/upload",
+    headers: {
+      ...platformHeaders("tokenhost-user"),
+      "content-type": "image/png",
+      "x-tokenhost-idempotency-key": "tokenhost-raw-terminal-retry-key",
+      "x-tokenhost-upload-filename": "raw-terminal-retry.png",
+      "x-tokenhost-upload-size": String(bytes.byteLength),
+    },
+    body: bytes,
+  };
+  const created = await api.handle(request);
+  registry.objects.get("1").status = 3;
+  const replayed = await api.handle(request);
+
+  assert.equal(created.status, 200);
+  assert.equal(replayed.status, 200);
+  assert.equal(replayed.body.ok, true);
+  assert.equal(replayed.body.upload.metadata.objectId, "1");
+  assert.equal(replayed.body.upload.metadata.status, "Committed");
+  assert.equal(submitAttempts, 1);
+  assert.equal(registry.createCalls.length, 2);
+  assert.equal(registry.objects.size, 1);
+});
+
+test("Token Host generated upload adapter validates and submits number-array bytes", async () => {
+  const registry = createMemoryRegistry();
+  const submitUploadBytes = registry.submitUploadBytes.bind(registry);
+  const api = createPlatformApi({ registry });
+  let submittedBytes;
+
+  registry.submitUploadBytes = async (args) => {
+    submittedBytes = args.bytes;
+    return submitUploadBytes(args);
+  };
+
+  const uploaded = await api.handle({
+    method: "POST",
+    path: "/storage/tokenhost/upload",
+    headers: {
+      ...platformHeaders("tokenhost-user"),
+      "x-tokenhost-idempotency-key": "tokenhost-number-array-key",
+      "x-tokenhost-upload-filename": "number-array.bin",
+      "x-tokenhost-upload-size": "3",
+    },
+    body: [0, 1, 255],
+  });
+
+  assert.equal(uploaded.status, 200);
+  assert.equal(submittedBytes.body instanceof Uint8Array, true);
+  assert.deepEqual(Array.from(submittedBytes.body), [0, 1, 255]);
+
+  const invalidRegistry = createMemoryRegistry();
+  const invalidApi = createPlatformApi({ registry: invalidRegistry });
+  const rejected = await invalidApi.handle({
+    method: "POST",
+    path: "/storage/tokenhost/upload",
+    headers: {
+      ...platformHeaders("tokenhost-user"),
+      "x-tokenhost-idempotency-key": "tokenhost-invalid-array-key",
+      "x-tokenhost-upload-filename": "invalid-array.bin",
+      "x-tokenhost-upload-size": "2",
+    },
+    body: [0, 256],
+  });
+
+  assert.equal(rejected.status, 400);
+  assert.equal(rejected.body.error.code, "invalid_tokenhost_upload_body");
+  assert.equal(rejected.body.error.index, 1);
+  assert.equal(rejected.body.error.value, 256);
+  assert.equal(invalidRegistry.objects.size, 0);
 });
 
 test("Token Host generated upload adapter rejects empty or mismatched byte uploads", async () => {
@@ -373,6 +628,10 @@ function platformHeaders(user = "platform-user", wallet = WALLET) {
   };
 }
 
+function hex32(byte) {
+  return `0x${byte.repeat(32)}`;
+}
+
 function createMemoryRegistry() {
   const objects = new Map();
   const usage = new Map();
@@ -403,6 +662,7 @@ function createMemoryRegistry() {
         user: account.user,
         idempotencyKey: request.idempotencyKey,
         contentHash: request.contentHash,
+        contentHashAlgorithm: request.contentHashAlgorithm,
         metadataHash: request.metadataHash,
         size: request.size,
         requestedCopies: request.requestedCopies,
