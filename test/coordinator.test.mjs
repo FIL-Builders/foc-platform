@@ -106,6 +106,70 @@ test("session-key config validates expiry and permissions hash", async () => {
   );
 });
 
+test("session-key config validates configured key and root identity", async () => {
+  const permissionsHash = derivePermissionsHash({
+    dataset: "write",
+    piece: "add",
+  });
+  const config = loadCoordinatorConfig({
+    FOC_COORDINATOR_ADDRESS: SESSION,
+    FOC_ROOT_ADDRESS: ROOT,
+    FOC_SESSION_KEY_ADDRESS: SESSION,
+    FOC_SESSION_KEY_EXPIRES_AT: "500",
+    FOC_SESSION_KEY_PERMISSIONS_HASH: permissionsHash,
+  });
+  const request = requestFixture({ size: 4n });
+
+  for (const [sessionKey, code] of [
+    [
+      createCoordinatorSessionKey({
+        address: PAYER,
+        rootAddress: ROOT,
+        expiresAt: 500n,
+        permissionsHash,
+      }),
+      "session_key_address_mismatch",
+    ],
+    [
+      createCoordinatorSessionKey({
+        address: SESSION,
+        rootAddress: PAYER,
+        expiresAt: 500n,
+        permissionsHash,
+      }),
+      "session_key_root_mismatch",
+    ],
+  ]) {
+    const registry = createRegistry();
+    const uploadCalls = [];
+    const coordinator = createLocalHostedCoordinator({
+      config,
+      sessionKey,
+      registry,
+      focClient: createFocClient({ uploadCalls }),
+      clock: () => 100n,
+    });
+
+    await assert.rejects(
+      () =>
+        coordinator.executeUpload({
+          objectId: 1n,
+          request,
+          bytes: new Uint8Array([1, 2, 3, 4]),
+        }),
+      (error) => {
+        assert.equal(error.name, "CoordinatorConfigError");
+        assert.equal(error.code, code);
+        return true;
+      },
+    );
+    assert.equal(registry.startCalls.length, 0);
+    assert.equal(registry.finalizeCalls.length, 0);
+    assert.equal(registry.failCalls.length, 0);
+    assert.equal(uploadCalls.length, 0);
+  }
+});
+
 test("receipt mapping produces section 6.7-compatible committed receipt fields", () => {
   const receipt = mapSynapseResultToUploadReceipt({
     payer: PAYER,
@@ -365,6 +429,39 @@ test("local hosted coordinator starts and finalizes through injected adapters", 
   assert.equal(first.mocked.focBytesMoved, false);
 });
 
+test("local hosted coordinator replays completed idempotency before session validation", async () => {
+  let now = 100n;
+  const permissionsHash = derivePermissionsHash({ dataset: "write", piece: "add" });
+  const sessionKey = createCoordinatorSessionKey({
+    address: SESSION,
+    rootAddress: ROOT,
+    expiresAt: 150n,
+    permissionsHash,
+  });
+  const uploadCalls = [];
+  const coordinator = createCoordinator({
+    focClient: createFocClient({ uploadCalls }),
+    sessionKey,
+    clock: () => now,
+  });
+  const request = requestFixture({ size: 4n });
+
+  const first = await coordinator.executeUpload({
+    objectId: 1n,
+    request,
+    bytes: new Uint8Array([1, 2, 3, 4]),
+  });
+  now = 200n;
+  const replay = await coordinator.executeUpload({
+    objectId: 1n,
+    request,
+    bytes: new Uint8Array(),
+  });
+
+  assert.equal(replay, first);
+  assert.equal(uploadCalls.length, 1);
+});
+
 test("local hosted coordinator validates request content hash when algorithm is available", async () => {
   const registry = createRegistry();
   const bytes = new Uint8Array([1, 2, 3, 4]);
@@ -600,29 +697,39 @@ test("local hosted coordinator does not failUpload an already terminal object", 
   assert.equal(registry.failCalls.length, 0);
 });
 
-function createCoordinator({ registry = createRegistry(), focClient = createFocClient() } = {}) {
+function createCoordinator({
+  registry = createRegistry(),
+  focClient = createFocClient(),
+  config,
+  sessionKey,
+  clock = () => 100n,
+} = {}) {
   const permissionsHash = derivePermissionsHash({ dataset: "write", piece: "add" });
-  const config = loadCoordinatorConfig({
-    FOC_COORDINATOR_MODE: "local-dev",
-    FOC_COORDINATOR_RUNNER: "simulated-synapse",
-    FOC_COORDINATOR_ADDRESS: SESSION,
-    FOC_ROOT_ADDRESS: ROOT,
-    FOC_SESSION_KEY_ADDRESS: SESSION,
-    FOC_SESSION_KEY_EXPIRES_AT: "1000",
-    FOC_SESSION_KEY_PERMISSIONS_HASH: permissionsHash,
-  });
-  const sessionKey = createCoordinatorSessionKey({
-    address: SESSION,
-    rootAddress: ROOT,
-    expiresAt: 1000n,
-    permissionsHash,
-  });
+  const resolvedConfig =
+    config ??
+    loadCoordinatorConfig({
+      FOC_COORDINATOR_MODE: "local-dev",
+      FOC_COORDINATOR_RUNNER: "simulated-synapse",
+      FOC_COORDINATOR_ADDRESS: SESSION,
+      FOC_ROOT_ADDRESS: ROOT,
+      FOC_SESSION_KEY_ADDRESS: SESSION,
+      FOC_SESSION_KEY_EXPIRES_AT: "1000",
+      FOC_SESSION_KEY_PERMISSIONS_HASH: permissionsHash,
+    });
+  const resolvedSessionKey =
+    sessionKey ??
+    createCoordinatorSessionKey({
+      address: SESSION,
+      rootAddress: ROOT,
+      expiresAt: 1000n,
+      permissionsHash,
+    });
   return createLocalHostedCoordinator({
-    config,
+    config: resolvedConfig,
     registry,
     focClient,
-    sessionKey,
-    clock: () => 100n,
+    sessionKey: resolvedSessionKey,
+    clock,
   });
 }
 

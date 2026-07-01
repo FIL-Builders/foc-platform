@@ -41,21 +41,24 @@ export function createLocalHostedCoordinator({
   return Object.freeze({
     config: publicCoordinatorConfig(config),
     async executeUpload(input) {
+      const preflightIdempotency = preflightIdempotencyOperation(input);
+      if (preflightIdempotency) {
+        const cached = cachedIdempotencyResult(
+          idempotencyStore.get(preflightIdempotency.key),
+          preflightIdempotency,
+        );
+        if (cached.hit) return cached.result;
+      }
       const prepared = prepareInput(input, config, sessionKey, clock);
-      const key = idempotencyOperationKey({
-        objectId: prepared.objectId,
-        idempotencyKey: prepared.idempotencyKey,
-        bytes: prepared.bytes,
-      });
-      const existing = idempotencyStore.get(key);
-      if (existing?.state === "completed") return existing.result;
-      if (existing?.state === "failed") throw existing.error;
-      if (existing?.state === "running") {
-        throw new HostedCoordinatorError("upload_in_progress", "idempotent upload is in progress", {
+      const key =
+        preflightIdempotency?.key ??
+        idempotencyOperationKey({
           objectId: prepared.objectId,
           idempotencyKey: prepared.idempotencyKey,
+          bytes: prepared.bytes,
         });
-      }
+      const cached = cachedIdempotencyResult(idempotencyStore.get(key), prepared);
+      if (cached.hit) return cached.result;
 
       idempotencyStore.set(key, { state: "running" });
       try {
@@ -111,6 +114,8 @@ function prepareInput(input = {}, config, sessionKey, clock) {
   assertActiveSessionKey(sessionKey, {
     now: clock(),
     requiredPermissionsHash: config.permissionsHash ?? ZERO_BYTES32,
+    requiredSessionKeyAddress: config.sessionKeyAddress ?? config.coordinatorAddress,
+    requiredRootAddress: config.rootAddress,
   });
 
   return {
@@ -121,6 +126,33 @@ function prepareInput(input = {}, config, sessionKey, clock) {
     account: input.account,
     metadata: input.metadata ?? {},
   };
+}
+
+function preflightIdempotencyOperation(input = {}) {
+  const objectId = input?.objectId;
+  const idempotencyKey = input?.idempotencyKey ?? input?.request?.idempotencyKey;
+  if (objectId === undefined || objectId === null || objectId === "" || !idempotencyKey) {
+    return undefined;
+  }
+  return {
+    key: idempotencyOperationKey({ objectId, idempotencyKey }),
+    objectId,
+    idempotencyKey,
+  };
+}
+
+function cachedIdempotencyResult(existing, details) {
+  if (existing?.state === "completed") {
+    return { hit: true, result: existing.result };
+  }
+  if (existing?.state === "failed") throw existing.error;
+  if (existing?.state === "running") {
+    throw new HostedCoordinatorError("upload_in_progress", "idempotent upload is in progress", {
+      objectId: details.objectId,
+      idempotencyKey: details.idempotencyKey,
+    });
+  }
+  return { hit: false };
 }
 
 async function executePreparedUpload({ prepared, registry, focClient, sessionKey, config }) {

@@ -72,9 +72,42 @@ export function createCoordinatorSessionKey({
 export function assertActiveSessionKey(sessionKey, {
   now = currentUnixTime(),
   requiredPermissionsHash = ZERO_BYTES32,
+  requiredSessionKeyAddress,
+  requiredRootAddress,
 } = {}) {
   if (!sessionKey) {
     throw new CoordinatorConfigError("missing_session_key", "coordinator session key is required");
+  }
+  const expectedSessionKeyAddress = optionalAddress(
+    requiredSessionKeyAddress,
+    "requiredSessionKeyAddress",
+  );
+  if (
+    expectedSessionKeyAddress &&
+    optionalAddress(sessionKey.address, "sessionKeyAddress") !== expectedSessionKeyAddress
+  ) {
+    throw new CoordinatorConfigError(
+      "session_key_address_mismatch",
+      "coordinator session key address does not match config",
+      {
+        expected: expectedSessionKeyAddress,
+        actual: sessionKey.address,
+      },
+    );
+  }
+  const expectedRootAddress = optionalAddress(requiredRootAddress, "requiredRootAddress");
+  if (
+    expectedRootAddress &&
+    optionalAddress(sessionKey.rootAddress, "rootAddress") !== expectedRootAddress
+  ) {
+    throw new CoordinatorConfigError(
+      "session_key_root_mismatch",
+      "coordinator session key root address does not match config",
+      {
+        expected: expectedRootAddress,
+        actual: sessionKey.rootAddress,
+      },
+    );
   }
   if (sessionKey.expiresAt !== 0n && BigInt(now) > sessionKey.expiresAt) {
     throw new CoordinatorConfigError("expired_session_key", "coordinator session key is expired", {
