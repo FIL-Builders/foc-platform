@@ -59,7 +59,8 @@ Common optional environment:
   FOC_PLATFORM_DEMO_PROVIDER_ID            defaults to 4
   FOC_PLATFORM_DEMO_DATASET_ID             defaults to 12524
   FOC_PLATFORM_DEMO_PIECE_ID               defaults to 34
-  FOC_PLATFORM_DEMO_ADD_PIECE_TX_HASH      defaults to zero bytes32 when unavailable
+  FOC_PLATFORM_DEMO_UPLOAD_TX_HASH         optional FOC upload/add-piece tx hash
+  FOC_PLATFORM_DEMO_ADD_PIECE_TX_HASH      optional alias for upload/add-piece tx hash
   FOC_PLATFORM_DEMO_GAS_LIMIT              defaults to 80000000
 `);
     return null;
@@ -235,10 +236,7 @@ async function loadConfig(env) {
   const providerId = env.FOC_PLATFORM_DEMO_PROVIDER_ID ?? "4";
   const datasetId = env.FOC_PLATFORM_DEMO_DATASET_ID ?? "12524";
   const pieceId = env.FOC_PLATFORM_DEMO_PIECE_ID ?? "34";
-  const addPieceTxHash = normalizeBytes32(
-    env.FOC_PLATFORM_DEMO_ADD_PIECE_TX_HASH || ZERO_BYTES32,
-    "FOC_PLATFORM_DEMO_ADD_PIECE_TX_HASH",
-  );
+  const { uploadTxHash, addPieceTxHash } = normalizeDemoUploadTxHash(env);
   const accountId = normalizeBytes32(
     env.FOC_PLATFORM_DEMO_ACCOUNT_ID ??
       keccak256(stringToHex("foc-platform:calibration-demo:issue-15:account")),
@@ -285,6 +283,7 @@ async function loadConfig(env) {
     payloadPath,
     pieceCid,
     retrievalUrl,
+    uploadTxHash,
     providerId,
     datasetId,
     pieceId,
@@ -325,6 +324,19 @@ async function loadConfig(env) {
         },
       ],
     },
+  };
+}
+
+export function normalizeDemoUploadTxHash(env = {}) {
+  const rawUploadTxHash =
+    env.FOC_PLATFORM_DEMO_UPLOAD_TX_HASH ?? env.FOC_PLATFORM_DEMO_ADD_PIECE_TX_HASH;
+  const addPieceTxHash = normalizeBytes32(
+    rawUploadTxHash || ZERO_BYTES32,
+    "FOC_PLATFORM_DEMO_UPLOAD_TX_HASH or FOC_PLATFORM_DEMO_ADD_PIECE_TX_HASH",
+  );
+  return {
+    uploadTxHash: rawUploadTxHash ? addPieceTxHash : null,
+    addPieceTxHash,
   };
 }
 
@@ -421,7 +433,7 @@ function buildEvidence({
       pieceId: config.pieceId,
       pieceCid: config.pieceCid,
       retrievalUrl: config.retrievalUrl,
-      uploadTxHash: null,
+      uploadTxHash: config.uploadTxHash,
       uploadEvidence: "FOC MCP upload call timed out locally, but dataset read shows piece metadata.",
       registryTxHashes: txHashes,
       request: jsonSafe(config.requestParams),

@@ -116,3 +116,14 @@ test("Calibration registry runner is safe to import", async () => {
   assert.equal(typeof runner.runCalibrationRegistryDemo, "function");
   assert.equal(typeof runner.main, "function");
 });
+
+test("Calibration registry runner honors documented upload tx hash env", async () => {
+  const runner = await import(`../scripts/run-calibration-registry-demo.mjs?hash=${Date.now()}`);
+  const txHash = `0x${"ab".repeat(32)}`;
+
+  assert.deepEqual(runner.normalizeDemoUploadTxHash({ FOC_PLATFORM_DEMO_UPLOAD_TX_HASH: txHash }), {
+    uploadTxHash: txHash,
+    addPieceTxHash: txHash,
+  });
+  assert.equal(runner.normalizeDemoUploadTxHash({}).uploadTxHash, null);
+});
