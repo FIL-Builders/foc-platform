@@ -1,0 +1,34 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "foc-platform-calibration-demo",
+  "main": "src/worker/calibration-demo.mjs",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    "FILECOIN_CALIBRATION_RPC_URL": "https://api.calibration.node.glif.io/rpc/v1",
+    "FOC_PLATFORM_DEMO_NETWORK": "filecoin_calibration",
+    "FOC_PLATFORM_DEMO_CHAIN_ID": "314159",
+    "FOC_PLATFORM_REGISTRY_ADDRESS": "0x7771d916a9d742B1D60597a332C7ABBd5796609c",
+    "FOC_PLATFORM_REGISTRY_DEPLOY_TX": "0xb6a4469ae4bff657326d25dd9989ebae54f03467c8ddee19001b1c114fe70552",
+    "FOC_PLATFORM_REGISTRY_DEPLOY_BLOCK": "3852147",
+    "FOC_PLATFORM_REGISTRY_RUNTIME_SHA256": "0xed478a27e255a1b27989ffa4f2fcbf38f1a9ec61a84c8d3e20aceb4e26f72040",
+    "FOC_PLATFORM_DEMO_GENERATED_AT": "2026-07-01T14:29:04.326Z",
+    "FOC_PLATFORM_DEMO_MODE": "calibration_live_evidence",
+    "FOC_PLATFORM_DEMO_STATUS": "Committed",
+    "FOC_PLATFORM_DEMO_OBJECT_ID": "1",
+    "FOC_PLATFORM_DEMO_ACCOUNT_ID": "0xfaa4a252e3d762275f3bb2baccba097024ed47a08845bee0de79a2ee58514e01",
+    "FOC_PLATFORM_DEMO_PROVIDER_ID": "4",
+    "FOC_PLATFORM_DEMO_DATASET_ID": "12524",
+    "FOC_PLATFORM_DEMO_PIECE_ID": "34",
+    "FOC_PLATFORM_DEMO_PIECE_CID": "bafkzcibeqcad6egqwuynxmfu6jof2lzkfdp65aelknasuautd4mmjgpvujkaq2ytey",
+    "FOC_PLATFORM_DEMO_RETRIEVAL_URL": "https://caliberation-pdp.infrafolio.com/piece/bafkzcibeqcad6egqwuynxmfu6jof2lzkfdp65aelknasuautd4mmjgpvujkaq2ytey",
+    "FOC_PLATFORM_DEMO_UPLOAD_TX_HASH": "",
+    "FOC_PLATFORM_DEMO_REGISTRY_TX_HASHES_JSON": "{\"setCoordinator\":\"0xcf21feda99029624d18bcf17035f0f5d0f9c7bc67680ca0d32f210d6acf370ce\",\"requestUpload\":\"0x552b1da9b049dc1301effcc34c497625a1e09934b25bec7e5a3fe607ba3382fd\",\"startUpload\":\"0x1d1104fb0807ff05f4a4c9045dcfc888a54bd6d143edab25e19ec6d4bd6a8bb1\",\"recordDataset\":\"0x3ec159924041a28531652a23ca4343f7aa8186da47f5c27cc6e8410bee5a3ea3\",\"finalizeUpload\":\"0xebbf1d335df22f3607e9552753360d80d48fd28d199ef0afa19f052d5fd57608\"}"
+  }
+}

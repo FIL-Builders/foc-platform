@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-01T14:29:04.326Z",
+  "mode": "calibration_live_evidence",
+  "network": "filecoin_calibration",
+  "chainId": 314159,
+  "registry": {
+    "address": "0x7771d916a9d742B1D60597a332C7ABBd5796609c",
+    "deployTxHash": "0xb6a4469ae4bff657326d25dd9989ebae54f03467c8ddee19001b1c114fe70552",
+    "deployBlock": "3852147",
+    "runtimeSha256": "0xed478a27e255a1b27989ffa4f2fcbf38f1a9ec61a84c8d3e20aceb4e26f72040",
+    "rootAddress": "0xF00DCE36817586672B47480FB48C94177A97278B"
+  },
+  "demo": {
+    "status": "Committed",
+    "objectId": "1",
+    "accountId": "0xfaa4a252e3d762275f3bb2baccba097024ed47a08845bee0de79a2ee58514e01",
+    "providerId": "4",
+    "datasetId": "12524",
+    "pieceId": "34",
+    "pieceCid": "bafkzcibeqcad6egqwuynxmfu6jof2lzkfdp65aelknasuautd4mmjgpvujkaq2ytey",
+    "retrievalUrl": "https://caliberation-pdp.infrafolio.com/piece/bafkzcibeqcad6egqwuynxmfu6jof2lzkfdp65aelknasuautd4mmjgpvujkaq2ytey",
+    "uploadTxHash": null,
+    "uploadEvidence": "FOC MCP upload call timed out locally, but dataset read shows piece metadata.",
+    "registryTxHashes": {
+      "setCoordinator": "0xcf21feda99029624d18bcf17035f0f5d0f9c7bc67680ca0d32f210d6acf370ce",
+      "requestUpload": "0x552b1da9b049dc1301effcc34c497625a1e09934b25bec7e5a3fe607ba3382fd",
+      "startUpload": "0x1d1104fb0807ff05f4a4c9045dcfc888a54bd6d143edab25e19ec6d4bd6a8bb1",
+      "recordDataset": "0x3ec159924041a28531652a23ca4343f7aa8186da47f5c27cc6e8410bee5a3ea3",
+      "finalizeUpload": "0xebbf1d335df22f3607e9552753360d80d48fd28d199ef0afa19f052d5fd57608"
+    },
+    "request": {
+      "accountId": "0xfaa4a252e3d762275f3bb2baccba097024ed47a08845bee0de79a2ee58514e01",
+      "user": "0xF00DCE36817586672B47480FB48C94177A97278B",
+      "idempotencyKey": "0x5406d79dc2d037e0ae8d44e37d51c2e580e3ad8f502d1e4f9d1f5b26ac41d42a",
+      "contentHash": "0x7b6ff0a03e9c5a8e77a2059bf28e26a7f0e8d3939a7cfe2193908ad8d683be90",
+      "metadataHash": "0x1f730e601a8a44118bfcaae9318c3b8b50fa763f76ef9ebfc3addc305ef3a39b",
+      "size": "1048576",
+      "requestedCopies": 1,
+      "withCDN": false,
+      "maxCost": "1000000000000000000",
+      "requestExpiresAt": "0"
+    },
+    "receipt": {
+      "finalizationStatus": 0,
+      "payer": "0xF00DCE36817586672B47480FB48C94177A97278B",
+      "pieceCidHash": "0x1d5bd2c090caa0ea9c783580583db845bde105cfb9c4f9ca209d3c22f93d621e",
+      "size": "1048576",
+      "requestedCopies": 1,
+      "completedCopies": 1,
+      "actualCost": "0",
+      "receiptHash": "0xce534bd735f5dea29729cd9a25ebcf5e1ff469b0979317d5e50dce75fccbb3c0",
+      "copies": [
+        {
+          "providerId": "4",
+          "datasetId": "12524",
+          "pieceId": "34",
+          "addPieceTxHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "retrievalUrlHash": "0xbc0379a2391ad7034da56d73098c4534a69b00f4c4039ff330878cf1b03e4926",
+          "isNewDataSet": false
+        }
+      ]
+    },
+    "onchain": {
+      "object": {
+        "objectId": "1",
+        "accountId": "0xfaa4a252e3d762275f3bb2baccba097024ed47a08845bee0de79a2ee58514e01",
+        "user": "0xF00DCE36817586672B47480FB48C94177A97278B",
+        "idempotencyKey": "0x5406d79dc2d037e0ae8d44e37d51c2e580e3ad8f502d1e4f9d1f5b26ac41d42a",
+        "contentHash": "0x7b6ff0a03e9c5a8e77a2059bf28e26a7f0e8d3939a7cfe2193908ad8d683be90",
+        "metadataHash": "0x1f730e601a8a44118bfcaae9318c3b8b50fa763f76ef9ebfc3addc305ef3a39b",
+        "pieceCidHash": "0x1d5bd2c090caa0ea9c783580583db845bde105cfb9c4f9ca209d3c22f93d621e",
+        "size": "1048576",
+        "requestedCopies": 1,
+        "completedCopies": 1,
+        "withCDN": false,
+        "maxCost": "1000000000000000000",
+        "reservedCost": "1000000000000000000",
+        "actualCost": "0",
+        "status": 3,
+        "coordinator": "0xF00DCE36817586672B47480FB48C94177A97278B",
+        "requestExpiresAt": "1783002330",
+        "createdAt": "1782915930",
+        "updatedAt": "1782916110",
+        "receiptHash": "0xce534bd735f5dea29729cd9a25ebcf5e1ff469b0979317d5e50dce75fccbb3c0"
+      },
+      "usage": {
+        "activeBytes": "1048576",
+        "activeObjects": "1",
+        "pendingBytes": "0",
+        "reservedCost": "0",
+        "totalActualCost": "0",
+        "totalUploadedBytes": "1048576",
+        "totalRequestedUploads": "1",
+        "totalFinalizedUploads": "1",
+        "totalFailedUploads": "0"
+      },
+      "copyReceipts": [
+        {
+          "providerId": "4",
+          "datasetId": "12524",
+          "pieceId": "34",
+          "addPieceTxHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "retrievalUrlHash": "0xbc0379a2391ad7034da56d73098c4534a69b00f4c4039ff330878cf1b03e4926",
+          "isNewDataSet": false
+        }
+      ],
+      "receiptPayer": "0xF00DCE36817586672B47480FB48C94177A97278B",
+      "dataset": {
+        "accountId": "0xfaa4a252e3d762275f3bb2baccba097024ed47a08845bee0de79a2ee58514e01",
+        "payer": "0xF00DCE36817586672B47480FB48C94177A97278B",
+        "providerId": "4",
+        "datasetId": "12524",
+        "storageClass": "0x0e6acc625c140754b256b76ddbbb54fdac3cbed1a8405e4b477401bd17f16282",
+        "withCDN": false,
+        "createdAt": "1782916050",
+        "updatedAt": "1782916050"
+      }
+    }
+  },
+  "worker": {
+    "mode": "read_only_public_evidence",
+    "privilegedActions": false,
+    "servesPrivateKeys": false,
+    "url": "https://foc-platform-calibration-demo.snissn.workers.dev",
+    "versionId": "bee0fdaf-f4ac-4a6a-8556-46842d76c6cb",
+    "startupTimeMs": 14,
+    "validatedEndpoints": [
+      "/api/health",
+      "/api/demo/evidence",
+      "/api/demo/registry"
+    ]
+  },
+  "tokenHost": {
+    "mode": "hand_written_registry_wrapper",
+    "manifestPath": "artifacts/tokenhost/foc-platform-wrapper-manifest.json"
+  },
+  "limitations": [
+    "The FOC upload was performed through the local foc-storage MCP tool using local credentials.",
+    "The upload client timed out before returning an add-piece transaction hash; provider dataset state proves the piece exists.",
+    "The registry receipt uses zero actualCost because the timed-out upload result did not return a cost field.",
+    "The Worker remains read-only and does not hold or use private keys."
+  ]
+}

@@ -73,3 +73,15 @@ build:tokenhost` regenerates the committed wrapper manifest. See
 [`docs/platform-api.md`](./docs/platform-api.md),
 [`docs/admin-reconciliation.md`](./docs/admin-reconciliation.md), and
 [`docs/tokenhost-demo.md`](./docs/tokenhost-demo.md).
+
+The Calibration Worker demo in [`wrangler.jsonc`](./wrangler.jsonc) and
+[`src/worker/calibration-demo.mjs`](./src/worker/calibration-demo.mjs) exposes a
+read-only public evidence surface for issue #15. It is configured with live
+Calibration evidence for registry object `1`, provider/dataset/piece
+`4`/`12524`/`34`, and a committed registry finalization. The deployed demo is
+available at `https://foc-platform-calibration-demo.snissn.workers.dev`. Run
+`pnpm worker:dev` for a local Worker and `pnpm worker:dry-run` to validate the
+deploy bundle. The Worker must not receive private keys or session keys;
+privileged FOC upload and registry transaction submission stay in the local
+operator runbook. See
+[`docs/calibration-worker-demo.md`](./docs/calibration-worker-demo.md).
