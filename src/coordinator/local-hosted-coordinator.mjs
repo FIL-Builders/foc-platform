@@ -312,6 +312,19 @@ async function finalizePendingReceipt({ prepared, registry, receipt, sessionKey,
       message: "registry read failed before pending finalization retry; retry without failing upload",
     });
   }
+  if (uploadObjectMatchesReceipt(currentObject, receipt)) {
+    return Object.freeze(
+      uploadResult({
+        prepared,
+        receipt,
+        registryResult: {
+          recoveredPendingFinalize: true,
+          object: currentObject,
+        },
+        config,
+      }),
+    );
+  }
   assertUploadRequestNotExpired({ prepared, object: currentObject, now: clock() });
   return finalizePreparedReceipt({ prepared, registry, receipt, sessionKey, config });
 }

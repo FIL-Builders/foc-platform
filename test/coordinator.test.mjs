@@ -1573,6 +1573,64 @@ test("local hosted coordinator rejects expired pending-finalize retries before f
   assert.equal(uploadCalls.length, 1);
 });
 
+test("local hosted coordinator recovers matched pending finalization before retrying finalize", async () => {
+  const registry = createRegistry();
+  const uploadCalls = [];
+  const finalizeError = new Error("finalize confirmation timeout");
+  finalizeError.code = "finalize_timeout";
+  const finalizeUpload = registry.finalizeUpload;
+  const readUploadStatus = registry.readUploadStatus;
+  let failRecoveryRead = false;
+  let readFailures = 0;
+  registry.readUploadStatus = async function readUploadStatusWithRecoveryFailure(args) {
+    if (failRecoveryRead) {
+      failRecoveryRead = false;
+      readFailures += 1;
+      throw new Error("registry read timeout");
+    }
+    return readUploadStatus.call(this, args);
+  };
+  registry.finalizeUpload = async function finalizeThenLoseRecoveryRead(args) {
+    await finalizeUpload.call(this, args);
+    failRecoveryRead = true;
+    throw finalizeError;
+  };
+  const coordinator = createCoordinator({
+    registry,
+    focClient: createFocClient({ uploadCalls }),
+  });
+  const request = requestFixture({ size: 4n });
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request,
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "finalize_upload_failed");
+      assert.equal(error.details.sourceCode, "finalize_timeout");
+      return true;
+    },
+  );
+
+  const retry = await coordinator.executeUpload({
+    objectId: 1n,
+    request,
+    bytes: new Uint8Array([1, 2, 3, 4]),
+  });
+
+  assert.equal(retry.status, "Committed");
+  assert.equal(retry.registry.recoveredPendingFinalize, true);
+  assert.equal(registry.status, "Committed");
+  assert.equal(readFailures, 1);
+  assert.equal(registry.finalizeCalls.length, 1);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 1);
+});
+
 test("local hosted coordinator recovers ambiguous successful finalization without reuploading", async () => {
   const registry = createRegistry();
   const uploadCalls = [];
