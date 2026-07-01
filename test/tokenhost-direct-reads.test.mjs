@@ -52,6 +52,10 @@ test("Token Host direct read adapter builds admin surfaces from registry list vi
   assert.equal(accountPage.accounts[0].objectPagination.mode, "objectIdCursor");
   assert.deepEqual((await adapter.readAccountObjectPage(ACCOUNT_A, { limit: 2n })).ids, ["1"]);
 
+  const datasetPage = await adapter.readDatasetPage({ limit: 2n });
+  assert.deepEqual(datasetPage.keys, [`${ACCOUNT_A}:111:222`]);
+  assert.doesNotThrow(() => JSON.stringify(datasetPage));
+
   const surfaces = await adapter.readAdminSurfaces({ limit: 2n });
   assert.equal(
     surfaces.sourceOfTruth.platformState,
@@ -156,6 +160,17 @@ test("Token Host direct read adapter honors admin route hints", async () => {
     "getCopyReceipts",
     "receiptPayer",
   ]);
+});
+
+test("Token Host direct read adapter defaults admin time for coordinator expiry checks", async () => {
+  const adapter = createTokenHostRegistryDirectReadAdapter({
+    publicClient: createRegistryFixtureClient(),
+    registryAddress: REGISTRY_ADDRESS,
+    maxPageSize: 2,
+  });
+  const surfaces = await adapter.readAdminSurfaces({ route: { name: "coordinators" } });
+
+  assert.equal(surfaces.coordinators[0].sessionStatus, "expired");
 });
 
 test("Token Host direct read adapter restarts active cursor pages from the registry head", async () => {

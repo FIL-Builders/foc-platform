@@ -285,13 +285,14 @@ export function createTokenHostRegistryDirectReadAdapter({
 
   async function readDatasetPage({ offset = 0n, limit = maxLimit } = {}) {
     const normalizedLimit = normalizePageLimit(limit, maxLimit);
-    const keys = Array.from(
+    const rawKeys = Array.from(
       await readContract(
         registryDatasetKeysPageRead(registryAddress, { offset, limit: normalizedLimit }),
       ),
     );
+    const keys = rawKeys.map(registryDatasetKeyId);
     const datasets = await mapWithConcurrency(
-      keys,
+      rawKeys,
       maxDetailConcurrency,
       async (key) => {
         const dataset = normalizeRegistryDatasetRecord(
@@ -306,7 +307,7 @@ export function createTokenHostRegistryDirectReadAdapter({
 
     return {
       sourceOfTruth: DIRECT_READ_SOURCE,
-      pagination: offsetPagination({ offset, limit: normalizedLimit, rows: keys }),
+      pagination: offsetPagination({ offset, limit: normalizedLimit, rows: rawKeys }),
       keys,
       datasets,
     };
@@ -478,7 +479,7 @@ export function createTokenHostRegistryDirectReadAdapter({
       { model },
       {
         ...options,
-        now: options.now ?? now,
+        now: options.now ?? now ?? currentUnixSeconds(),
       },
     );
   }
@@ -756,6 +757,10 @@ function normalizeConcurrency(concurrency) {
     throw new Error("detailConcurrency must be a positive integer");
   }
   return value;
+}
+
+function currentUnixSeconds() {
+  return Math.floor(Date.now() / 1000);
 }
 
 function decimalString(value) {
