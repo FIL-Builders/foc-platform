@@ -304,17 +304,27 @@ async function executePreparedUpload({ prepared, registry, focClient, sessionKey
     throw error;
   }
   assertUploadRequestNotExpired({ prepared, object: currentObject, now: clock() });
-  const receipt = mapSynapseResultToUploadReceipt({
-    result: synapseResult,
-    request: prepared.request,
-    payer: synapseResult?.payer ?? config.rootAddress ?? sessionKey.rootAddress,
-  });
+  let sessionError;
   try {
     assertCoordinatorSessionKey(config, sessionKey, clock);
   } catch (error) {
+    sessionError = error;
+  }
+  let receipt;
+  try {
+    receipt = mapSynapseResultToUploadReceipt({
+      result: synapseResult,
+      request: prepared.request,
+      payer: synapseResult?.payer ?? config.rootAddress ?? sessionKey.rootAddress,
+    });
+  } catch (error) {
+    if (sessionError) throw sessionError;
+    throw error;
+  }
+  if (sessionError) {
     throw createFinalizeUploadFailedError({
       prepared,
-      error,
+      error: sessionError,
       receipt,
       message: "coordinator session expired before registry finalization; retry without failing upload",
     });

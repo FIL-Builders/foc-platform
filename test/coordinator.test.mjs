@@ -1269,6 +1269,50 @@ test("local hosted coordinator preserves successful FOC uploads when session exp
   assert.equal(uploadCalls.length, 1);
 });
 
+test("local hosted coordinator skips failUpload for invalid FOC receipts after session expiry", async () => {
+  const registry = createRegistry();
+  const uploadCalls = [];
+  let now = 100n;
+  const coordinator = createCoordinator({
+    registry,
+    focClient: {
+      async upload(input) {
+        uploadCalls.push(input);
+        now = 1001n;
+        return {
+          payer: PAYER,
+          actualCost: 11n,
+          pieceCid: "baga6ea4seaqtest",
+          copies: [
+            copyFixture({ providerId: 111n, datasetId: 222n, pieceId: 333n }),
+            copyFixture({ providerId: 112n, datasetId: 223n, pieceId: 334n }),
+          ],
+        };
+      },
+    },
+    clock: () => now,
+  });
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request: requestFixture({ size: 4n }),
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "CoordinatorConfigError");
+      assert.equal(error.code, "expired_session_key");
+      return true;
+    },
+  );
+
+  assert.equal(registry.status, "Uploading");
+  assert.equal(registry.finalizeCalls.length, 0);
+  assert.equal(registry.failCalls.length, 0);
+  assert.equal(uploadCalls.length, 1);
+});
+
 test("local hosted coordinator skips failUpload when FOC errors after expiry", async () => {
   const registry = createRegistry();
   const uploadCalls = [];
