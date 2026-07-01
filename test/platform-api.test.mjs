@@ -392,6 +392,54 @@ test("Token Host generated upload adapter replays completed duplicate requests",
   assert.equal(registry.objects.size, 1);
 });
 
+test("Token Host generated upload adapter validates and submits number-array bytes", async () => {
+  const registry = createMemoryRegistry();
+  const submitUploadBytes = registry.submitUploadBytes.bind(registry);
+  const api = createPlatformApi({ registry });
+  let submittedBytes;
+
+  registry.submitUploadBytes = async (args) => {
+    submittedBytes = args.bytes;
+    return submitUploadBytes(args);
+  };
+
+  const uploaded = await api.handle({
+    method: "POST",
+    path: "/storage/tokenhost/upload",
+    headers: {
+      ...platformHeaders("tokenhost-user"),
+      "x-tokenhost-idempotency-key": "tokenhost-number-array-key",
+      "x-tokenhost-upload-filename": "number-array.bin",
+      "x-tokenhost-upload-size": "3",
+    },
+    body: [0, 1, 255],
+  });
+
+  assert.equal(uploaded.status, 200);
+  assert.equal(submittedBytes.body instanceof Uint8Array, true);
+  assert.deepEqual(Array.from(submittedBytes.body), [0, 1, 255]);
+
+  const invalidRegistry = createMemoryRegistry();
+  const invalidApi = createPlatformApi({ registry: invalidRegistry });
+  const rejected = await invalidApi.handle({
+    method: "POST",
+    path: "/storage/tokenhost/upload",
+    headers: {
+      ...platformHeaders("tokenhost-user"),
+      "x-tokenhost-idempotency-key": "tokenhost-invalid-array-key",
+      "x-tokenhost-upload-filename": "invalid-array.bin",
+      "x-tokenhost-upload-size": "2",
+    },
+    body: [0, 256],
+  });
+
+  assert.equal(rejected.status, 400);
+  assert.equal(rejected.body.error.code, "invalid_tokenhost_upload_body");
+  assert.equal(rejected.body.error.index, 1);
+  assert.equal(rejected.body.error.value, 256);
+  assert.equal(invalidRegistry.objects.size, 0);
+});
+
 test("Token Host generated upload adapter rejects empty or mismatched byte uploads", async () => {
   const registry = createMemoryRegistry();
   const api = createPlatformApi({ registry });

@@ -584,7 +584,7 @@ function normalizeTokenHostUploadRequest(body, headers, account) {
       requestExpiresAt: undefined,
     },
     bytes: {
-      body,
+      body: bodyBytes,
       byteLength: decimal(actualSize),
       fileName,
       contentType,
@@ -600,12 +600,27 @@ function normalizeTokenHostUploadRequest(body, headers, account) {
 
 function tokenHostUploadBytes(body) {
   if (typeof body === "string") return new TextEncoder().encode(body);
-  if (body instanceof ArrayBuffer) return new Uint8Array(body);
+  if (body instanceof ArrayBuffer) return Uint8Array.from(new Uint8Array(body));
   if (ArrayBuffer.isView(body)) {
-    return new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+    return Uint8Array.from(new Uint8Array(body.buffer, body.byteOffset, body.byteLength));
   }
-  if (Array.isArray(body)) return Uint8Array.from(body);
+  if (Array.isArray(body)) return tokenHostUploadByteArray(body);
   return undefined;
+}
+
+function tokenHostUploadByteArray(body) {
+  for (let index = 0; index < body.length; index += 1) {
+    const byte = body[index];
+    if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+      throw new PlatformApiError(
+        400,
+        "invalid_tokenhost_upload_body",
+        "number-array Token Host upload body must contain integers from 0 to 255",
+        { index, value: byte },
+      );
+    }
+  }
+  return Uint8Array.from(body);
 }
 
 let tokenHostUploadSequence = 0;
