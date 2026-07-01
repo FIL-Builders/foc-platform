@@ -637,6 +637,72 @@ test("local hosted coordinator replays completed idempotency before session vali
   assert.equal(uploadCalls.length, 1);
 });
 
+test("local hosted coordinator uses request idempotency key for running uploads", async () => {
+  const registry = createRegistry();
+  const uploadCalls = [];
+  let releaseUpload;
+  let markUploadStarted;
+  const uploadStarted = new Promise((resolve) => {
+    markUploadStarted = resolve;
+  });
+  const uploadReleased = new Promise((resolve) => {
+    releaseUpload = resolve;
+  });
+  const coordinator = createCoordinator({
+    registry,
+    focClient: {
+      async upload(input) {
+        uploadCalls.push(input);
+        markUploadStarted();
+        await uploadReleased;
+        return {
+          payer: PAYER,
+          actualCost: 7n,
+          pieceCid: "baga6ea4seaqtest",
+          copies: [
+            copyFixture({ providerId: 111n, datasetId: 222n, pieceId: 333n }),
+            copyFixture({ providerId: 112n, datasetId: 223n, pieceId: 334n }),
+          ],
+        };
+      },
+    },
+  });
+  const request = requestFixture({ size: 4n });
+  const firstUploadLevelKey =
+    "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+  const secondUploadLevelKey =
+    "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
+  const first = coordinator.executeUpload({
+    objectId: 1n,
+    request,
+    idempotencyKey: firstUploadLevelKey,
+    bytes: new Uint8Array([1, 2, 3, 4]),
+  });
+  await uploadStarted;
+
+  await assert.rejects(
+    () =>
+      coordinator.executeUpload({
+        objectId: 1n,
+        request,
+        idempotencyKey: secondUploadLevelKey,
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      }),
+    (error) => {
+      assert.equal(error.name, "HostedCoordinatorError");
+      assert.equal(error.code, "upload_in_progress");
+      assert.equal(error.details.idempotencyKey, request.idempotencyKey);
+      return true;
+    },
+  );
+
+  assert.equal(uploadCalls.length, 1);
+  releaseUpload();
+  const result = await first;
+  assert.equal(result.status, "Committed");
+});
+
 test("local hosted coordinator validates request content hash when algorithm is available", async () => {
   const registry = createRegistry();
   const bytes = new Uint8Array([1, 2, 3, 4]);

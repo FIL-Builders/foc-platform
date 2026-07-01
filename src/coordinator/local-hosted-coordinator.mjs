@@ -138,7 +138,7 @@ function prepareInput(input = {}, config, sessionKey, clock) {
     objectId,
     request,
     bytes,
-    idempotencyKey: input.idempotencyKey ?? request.idempotencyKey,
+    idempotencyKey: request.idempotencyKey ?? input.idempotencyKey,
     account: input.account,
     metadata: input.metadata ?? {},
   };
@@ -199,7 +199,7 @@ function sameContentHash(actual, expected) {
 
 function preflightIdempotencyOperation(input = {}) {
   const objectId = input?.objectId;
-  const idempotencyKey = input?.idempotencyKey ?? input?.request?.idempotencyKey;
+  const idempotencyKey = input?.request?.idempotencyKey ?? input?.idempotencyKey;
   if (objectId === undefined || objectId === null || objectId === "" || !idempotencyKey) {
     return undefined;
   }
