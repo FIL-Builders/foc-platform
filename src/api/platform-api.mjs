@@ -2,6 +2,8 @@ import { getAddress, isAddress, keccak256, stringToHex } from "viem";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const DEFAULT_ACCOUNT_NAMESPACE = "foc-platform:v1:demo";
+const UINT64_MAX = (1n << 64n) - 1n;
+const UINT256_MAX = (1n << 256n) - 1n;
 
 export const PLATFORM_API_ROUTES = Object.freeze({
   createUpload: ["POST /storage/upload-requests", "POST /storage/upload"],
@@ -50,8 +52,15 @@ export function deriveAccountId({ namespace = DEFAULT_ACCOUNT_NAMESPACE, subject
 }
 
 export function normalizeIdempotencyKey(value) {
-  if (!value) {
+  if (value === undefined || value === null || value === "") {
     throw new PlatformApiError(400, "missing_idempotency_key", "idempotency key is required");
+  }
+  if (typeof value !== "string") {
+    throw new PlatformApiError(
+      400,
+      "invalid_idempotency_key",
+      "idempotency key must be a string or bytes32",
+    );
   }
   if (isBytes32(value)) return value.toLowerCase();
   return keccak256(stringToHex(`foc-platform-idempotency:v1:${value}`));
@@ -216,7 +225,15 @@ function normalizeRequest(request = {}) {
 
 function normalizeHeaders(headers) {
   const normalized = {};
-  for (const [key, value] of Object.entries(headers)) {
+
+  if (headers && typeof headers.entries === "function") {
+    for (const [key, value] of headers.entries()) {
+      normalized[String(key).toLowerCase()] = Array.isArray(value) ? value[0] : value;
+    }
+    return normalized;
+  }
+
+  for (const [key, value] of Object.entries(headers ?? {})) {
     normalized[key.toLowerCase()] = Array.isArray(value) ? value[0] : value;
   }
   return normalized;
@@ -249,6 +266,24 @@ async function mapAccount(accountMapper, auth) {
       "account mapper returned no accountId",
     );
   }
+  if (typeof account.accountId !== "string" || !isBytes32(account.accountId)) {
+    throw new PlatformApiError(
+      500,
+      "invalid_account_mapping",
+      "account mapper returned invalid accountId",
+    );
+  }
+  if (
+    account.user !== undefined &&
+    account.user !== null &&
+    (typeof account.user !== "string" || !isAddress(account.user))
+  ) {
+    throw new PlatformApiError(
+      500,
+      "invalid_account_mapping",
+      "account mapper returned invalid user address",
+    );
+  }
   return {
     accountId: account.accountId.toLowerCase(),
     user: account.user && isAddress(account.user) ? getAddress(account.user) : ZERO_ADDRESS,
@@ -256,11 +291,15 @@ async function mapAccount(accountMapper, auth) {
 }
 
 function normalizeUploadRequest(body, headers, account) {
-  const size = positiveInteger(body.size, "size");
-  const requestedCopies = Number(positiveInteger(body.requestedCopies ?? 1, "requestedCopies"));
-  if (requestedCopies > 255) {
-    throw new PlatformApiError(400, "invalid_requested_copies", "requestedCopies must fit uint8");
-  }
+  const size = uintValue(body.size, "size", { min: 1n, max: UINT64_MAX });
+  const requestedCopies = Number(
+    uintValue(body.requestedCopies ?? 1, "requestedCopies", { min: 1n, max: 255n }),
+  );
+  const maxCost = uintValue(body.maxCost ?? 0, "maxCost", { min: 0n, max: UINT256_MAX });
+  const requestExpiresAt =
+    body.requestExpiresAt === undefined
+      ? undefined
+      : uintValue(body.requestExpiresAt, "requestExpiresAt", { min: 0n, max: UINT64_MAX });
 
   return {
     accountId: account.accountId,
@@ -273,9 +312,8 @@ function normalizeUploadRequest(body, headers, account) {
     size: size.toString(),
     requestedCopies,
     withCDN: Boolean(body.withCDN),
-    maxCost: safeDecimal(body.maxCost ?? 0, "maxCost"),
-    requestExpiresAt:
-      body.requestExpiresAt === undefined ? undefined : safeDecimal(body.requestExpiresAt, "requestExpiresAt"),
+    maxCost: decimal(maxCost),
+    requestExpiresAt: requestExpiresAt === undefined ? undefined : decimal(requestExpiresAt),
   };
 }
 
@@ -358,22 +396,32 @@ function errorResponse(error) {
   };
 }
 
-function positiveInteger(value, label) {
-  try {
-    const number = BigInt(value);
-    if (number <= 0n) throw new Error("not positive");
-    return number;
-  } catch {
-    throw new PlatformApiError(400, `invalid_${label}`, `${label} must be a positive integer`);
+function uintValue(value, label, { min, max }) {
+  if (value === undefined || value === null || value === "") {
+    throw new PlatformApiError(400, `invalid_${label}`, `${label} is required`);
   }
-}
-
-function safeDecimal(value, label) {
-  try {
-    return decimal(value);
-  } catch {
+  if (typeof value === "number" && !Number.isInteger(value)) {
     throw new PlatformApiError(400, `invalid_${label}`, `${label} must be an integer`);
   }
+  if (typeof value === "number" && !Number.isSafeInteger(value)) {
+    throw new PlatformApiError(400, `invalid_${label}`, `${label} must be a safe integer`);
+  }
+  if (typeof value === "string" && !/^\d+$/.test(value)) {
+    throw new PlatformApiError(400, `invalid_${label}`, `${label} must be an integer`);
+  }
+  if (!["bigint", "number", "string"].includes(typeof value)) {
+    throw new PlatformApiError(400, `invalid_${label}`, `${label} must be an integer`);
+  }
+
+  const number = BigInt(value);
+  if (number < min || number > max) {
+    throw new PlatformApiError(
+      400,
+      `invalid_${label}`,
+      `${label} must be between ${min} and ${max}`,
+    );
+  }
+  return number;
 }
 
 function header(headers, key) {

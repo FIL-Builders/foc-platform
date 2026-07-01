@@ -61,6 +61,72 @@ test("duplicate idempotency returns a stable 409 without creating a second objec
   assert.equal(registry.objects.size, 1);
 });
 
+test("standard Headers objects preserve authenticated platform headers", async () => {
+  const registry = createMemoryRegistry();
+  const api = createPlatformApi({ registry });
+
+  const response = await api.handle({
+    ...createUploadRequest({ idempotencyKey: "headers-key" }),
+    headers: new Headers(platformHeaders()),
+  });
+
+  assert.equal(response.status, 201);
+  assert.equal(registry.createCalls[0].account.accountId, response.body.request.accountId);
+});
+
+test("create upload rejects malformed boundary inputs before adapter work", async () => {
+  const registry = createMemoryRegistry();
+  const api = createPlatformApi({ registry });
+
+  const badIdempotency = await api.handle(
+    createUploadRequest({ idempotencyKey: { not: "a string" } }),
+  );
+  const tooLargeSize = await api.handle(
+    createUploadRequest({ idempotencyKey: "too-large-size", size: (1n << 64n).toString() }),
+  );
+  const negativeCost = await api.handle({
+    ...createUploadRequest({ idempotencyKey: "negative-cost" }),
+    body: {
+      ...createUploadRequest({ idempotencyKey: "negative-cost" }).body,
+      maxCost: "-1",
+    },
+  });
+  const fractionalExpiry = await api.handle({
+    ...createUploadRequest({ idempotencyKey: "fractional-expiry" }),
+    body: {
+      ...createUploadRequest({ idempotencyKey: "fractional-expiry" }).body,
+      requestExpiresAt: "1.5",
+    },
+  });
+
+  assert.equal(badIdempotency.status, 400);
+  assert.equal(badIdempotency.body.error.code, "invalid_idempotency_key");
+  assert.equal(tooLargeSize.status, 400);
+  assert.equal(tooLargeSize.body.error.code, "invalid_size");
+  assert.equal(negativeCost.status, 400);
+  assert.equal(negativeCost.body.error.code, "invalid_maxCost");
+  assert.equal(fractionalExpiry.status, 400);
+  assert.equal(fractionalExpiry.body.error.code, "invalid_requestExpiresAt");
+  assert.equal(registry.createCalls.length, 0);
+});
+
+test("invalid account mapper output returns structured mapping errors", async () => {
+  const registry = createMemoryRegistry();
+  const api = createPlatformApi({
+    registry,
+    accountMapper: () => ({
+      accountId: 123n,
+      user: WALLET,
+    }),
+  });
+
+  const response = await api.handle(createUploadRequest({ idempotencyKey: "bad-account" }));
+
+  assert.equal(response.status, 500);
+  assert.equal(response.body.error.code, "invalid_account_mapping");
+  assert.equal(registry.createCalls.length, 0);
+});
+
 test("bytes, status, object, and usage endpoints use the registry adapter state", async () => {
   const registry = createMemoryRegistry();
   const api = createPlatformApi({ registry });
