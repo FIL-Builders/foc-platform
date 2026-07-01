@@ -428,7 +428,8 @@ function normalizeUploadRequest(body, headers, account) {
 
 async function handleTokenHostUpload({ registry, account, auth, body, headers }) {
   const tokenHostUpload = normalizeTokenHostUploadRequest(body, headers, account);
-  const createdUpload = await registry.createUploadRequest({
+  const createdUpload = await createOrResumeTokenHostUpload({
+    registry,
     account,
     auth,
     request: tokenHostUpload.request,
@@ -444,6 +445,33 @@ async function handleTokenHostUpload({ registry, account, auth, body, headers })
     ...submitted,
     tokenHost: tokenHostUpload.tokenHost,
   };
+}
+
+async function createOrResumeTokenHostUpload({ registry, account, auth, request }) {
+  try {
+    return await registry.createUploadRequest({
+      account,
+      auth,
+      request,
+    });
+  } catch (error) {
+    const objectId = duplicateUploadRequestObjectId(error);
+    if (!objectId) throw error;
+    return { object: { objectId } };
+  }
+}
+
+function duplicateUploadRequestObjectId(error) {
+  if (!(error instanceof PlatformApiError) || error.code !== "duplicate_idempotency_key") {
+    return undefined;
+  }
+  const objectId = error.details?.objectId;
+  if (typeof objectId === "bigint" && objectId >= 0n) return objectId.toString();
+  if (typeof objectId === "number" && Number.isSafeInteger(objectId) && objectId >= 0) {
+    return String(objectId);
+  }
+  if (typeof objectId === "string" && /^\d+$/.test(objectId)) return objectId;
+  return undefined;
 }
 
 function normalizeTokenHostUploadRequest(body, headers, account) {
