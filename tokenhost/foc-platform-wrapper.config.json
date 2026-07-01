@@ -4,7 +4,7 @@
   "schemaPath": "apps/tokenhost-foc-platform/schema.json",
   "builder": {
     "repoPath": "$TOKENHOST_BUILDER_DIR",
-    "buildCommand": "TH_UPLOAD_RUNNER=remote TH_UPLOAD_PROVIDER=filecoin_onchain_cloud TH_UPLOAD_REMOTE_ENDPOINT_URL=/storage/upload TH_UPLOAD_REMOTE_STATUS_URL=/storage/uploads/status pnpm --dir \"$TOKENHOST_BUILDER_DIR\" th build \"$FOC_PLATFORM_DIR/apps/tokenhost-foc-platform/schema.json\" --chain filecoin_calibration --tx-mode sponsored --relay-base-url /__tokenhost/relay --out /tmp/foc-platform-tokenhost-demo",
+    "buildCommand": "TH_UPLOAD_RUNNER=remote TH_UPLOAD_PROVIDER=filecoin_onchain_cloud TH_UPLOAD_REMOTE_ENDPOINT_URL=/storage/tokenhost/upload TH_UPLOAD_REMOTE_STATUS_URL=/storage/tokenhost/upload/status pnpm --dir \"$TOKENHOST_BUILDER_DIR\" th build \"$FOC_PLATFORM_DIR/apps/tokenhost-foc-platform/schema.json\" --chain filecoin_calibration --tx-mode sponsored --relay-base-url /__tokenhost/relay --out /tmp/foc-platform-tokenhost-demo",
     "chain": "filecoin_calibration",
     "txMode": "sponsored",
     "expectedArtifacts": [
@@ -62,6 +62,8 @@
     "sourcePath": "src/api/platform-api.mjs",
     "routes": {
       "createUpload": ["POST /storage/upload-requests", "POST /storage/upload"],
+      "tokenHostUpload": "POST /storage/tokenhost/upload",
+      "tokenHostUploadStatus": "GET /storage/tokenhost/upload/status",
       "uploadBytes": "POST /storage/uploads/:objectId/bytes",
       "uploadStatus": [
         "GET /storage/uploads/:objectId/status",
@@ -81,8 +83,9 @@
     "uploadProvider": "filecoin_onchain_cloud",
     "uploadRunnerMode": "remote",
     "transactionMode": "sponsored",
-    "generatedUploadEndpoint": "/storage/upload",
-    "generatedUploadStatusEndpoint": "/storage/uploads/status",
+    "generatedUploadEndpoint": "/storage/tokenhost/upload",
+    "generatedUploadStatusEndpoint": "/storage/tokenhost/upload/status",
+    "platformCreateUploadEndpoint": "/storage/upload-requests",
     "platformUploadEndpoint": "/storage/uploads/:objectId/bytes",
     "platformStatusEndpoint": "/storage/uploads/:objectId/status"
   },

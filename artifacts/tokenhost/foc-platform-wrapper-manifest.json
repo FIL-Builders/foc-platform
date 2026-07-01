@@ -13,7 +13,7 @@
   },
   "builder": {
     "repoPath": "$TOKENHOST_BUILDER_DIR",
-    "buildCommand": "TH_UPLOAD_RUNNER=remote TH_UPLOAD_PROVIDER=filecoin_onchain_cloud TH_UPLOAD_REMOTE_ENDPOINT_URL=/storage/upload TH_UPLOAD_REMOTE_STATUS_URL=/storage/uploads/status pnpm --dir \"$TOKENHOST_BUILDER_DIR\" th build \"$FOC_PLATFORM_DIR/apps/tokenhost-foc-platform/schema.json\" --chain filecoin_calibration --tx-mode sponsored --relay-base-url /__tokenhost/relay --out /tmp/foc-platform-tokenhost-demo",
+    "buildCommand": "TH_UPLOAD_RUNNER=remote TH_UPLOAD_PROVIDER=filecoin_onchain_cloud TH_UPLOAD_REMOTE_ENDPOINT_URL=/storage/tokenhost/upload TH_UPLOAD_REMOTE_STATUS_URL=/storage/tokenhost/upload/status pnpm --dir \"$TOKENHOST_BUILDER_DIR\" th build \"$FOC_PLATFORM_DIR/apps/tokenhost-foc-platform/schema.json\" --chain filecoin_calibration --tx-mode sponsored --relay-base-url /__tokenhost/relay --out /tmp/foc-platform-tokenhost-demo",
     "chain": "filecoin_calibration",
     "txMode": "sponsored",
     "expectedArtifacts": [
@@ -101,6 +101,8 @@
         "POST /storage/upload-requests",
         "POST /storage/upload"
       ],
+      "tokenHostUpload": "POST /storage/tokenhost/upload",
+      "tokenHostUploadStatus": "GET /storage/tokenhost/upload/status",
       "uploadBytes": "POST /storage/uploads/:objectId/bytes",
       "uploadStatus": [
         "GET /storage/uploads/:objectId/status",
@@ -123,8 +125,9 @@
     "uploadProvider": "filecoin_onchain_cloud",
     "uploadRunnerMode": "remote",
     "transactionMode": "sponsored",
-    "generatedUploadEndpoint": "/storage/upload",
-    "generatedUploadStatusEndpoint": "/storage/uploads/status",
+    "generatedUploadEndpoint": "/storage/tokenhost/upload",
+    "generatedUploadStatusEndpoint": "/storage/tokenhost/upload/status",
+    "platformCreateUploadEndpoint": "/storage/upload-requests",
     "platformUploadEndpoint": "/storage/uploads/:objectId/bytes",
     "platformStatusEndpoint": "/storage/uploads/:objectId/status"
   },
@@ -167,5 +170,5 @@
     "No generated artifact may include coordinator private keys or platform root secrets.",
     "Real Filecoin Calibration and Synapse execution remain gated by Phase 0 credentials/evidence."
   ],
-  "configSha256": "0x710a5cab0c91c8da7f43030c92c47555861d4ff3bf30aed30cd906b8c326138f"
+  "configSha256": "0x14791d934f58ea27a081db1dc35984b2a0b84725e87fde8abba5e1d44b995e99"
 }

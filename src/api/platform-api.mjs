@@ -7,6 +7,8 @@ const UINT256_MAX = (1n << 256n) - 1n;
 
 export const PLATFORM_API_ROUTES = Object.freeze({
   createUpload: ["POST /storage/upload-requests", "POST /storage/upload"],
+  tokenHostUpload: "POST /storage/tokenhost/upload",
+  tokenHostUploadStatus: "GET /storage/tokenhost/upload/status",
   uploadBytes: "POST /storage/uploads/:objectId/bytes",
   uploadStatus: [
     "GET /storage/uploads/:objectId/status",
@@ -92,6 +94,10 @@ export function createPlatformApi({
       try {
         const normalized = normalizeRequest(request);
         const route = matchRoute(normalized.method, normalized.pathname, normalized.searchParams);
+        if (route.name === "tokenHostUploadStatus") {
+          return ok(formatTokenHostUploadAdapterStatus());
+        }
+
         const auth = authenticate(normalized.headers);
         const account = await mapAccount(accountMapper, auth);
 
@@ -103,6 +109,18 @@ export function createPlatformApi({
                   account,
                   auth,
                   request: normalizeUploadRequest(normalized.body, normalized.headers, account),
+                }),
+              ),
+            );
+          case "tokenHostUpload":
+            return ok(
+              formatTokenHostUploadAdapterResponse(
+                await handleTokenHostUpload({
+                  registry,
+                  account,
+                  auth,
+                  body: normalized.body,
+                  headers: normalized.headers,
                 }),
               ),
             );
@@ -216,6 +234,49 @@ export function formatUsageResponse(payload) {
   });
 }
 
+export function formatTokenHostUploadAdapterStatus() {
+  return {
+    ok: true,
+    enabled: true,
+    provider: "filecoin_onchain_cloud",
+    runnerMode: "remote",
+    endpointUrl: "/storage/tokenhost/upload",
+    statusUrl: "/storage/tokenhost/upload/status",
+    accept: [],
+    maxBytes: null,
+  };
+}
+
+export function formatTokenHostUploadAdapterResponse(payload) {
+  const object = payload.object ?? payload.reads?.object ?? payload.upload ?? payload;
+  const objectId = decimal(object.objectId);
+  const links = uploadLinks(objectId);
+
+  return jsonSafe({
+    ok: true,
+    upload: {
+      url: links.object,
+      cid: object.pieceCid ?? object.contentCid ?? null,
+      size: object.size,
+      provider: "filecoin_onchain_cloud",
+      runnerMode: "remote",
+      contentType: payload.tokenHost?.contentType ?? null,
+      metadata: {
+        objectId,
+        accountId: object.accountId,
+        status: object.status,
+        receiptHash: object.receiptHash,
+        links,
+        focPlatform: {
+          objectUrl: links.object,
+          statusUrl: links.statusAlias,
+          uploadBytesUrl: links.uploadBytes,
+        },
+      },
+    },
+  });
+}
+
 function normalizeRequest(request = {}) {
   const method = String(request.method ?? "").toUpperCase();
   const url = new URL(request.path ?? request.url ?? "/", "http://foc-platform.local");
@@ -322,12 +383,147 @@ function normalizeUploadRequest(body, headers, account) {
   };
 }
 
+async function handleTokenHostUpload({ registry, account, auth, body, headers }) {
+  const tokenHostUpload = normalizeTokenHostUploadRequest(body, headers, account);
+  const createdUpload = await registry.createUploadRequest({
+    account,
+    auth,
+    request: tokenHostUpload.request,
+  });
+  const createdObject = createdUpload.object ?? createdUpload.upload ?? createdUpload;
+  const submitted = await registry.submitUploadBytes({
+    objectId: createdObject.objectId,
+    account,
+    auth,
+    bytes: tokenHostUpload.bytes,
+  });
+  return {
+    ...submitted,
+    tokenHost: tokenHostUpload.tokenHost,
+  };
+}
+
+function normalizeTokenHostUploadRequest(body, headers, account) {
+  const actualSize = uploadBodySize(body);
+  const declaredSize = header(headers, "x-tokenhost-upload-size");
+  const size =
+    declaredSize === undefined
+      ? actualSize
+      : uintValue(declaredSize, "tokenhost_upload_size", { min: 1n, max: UINT64_MAX });
+
+  if (actualSize <= 0n) {
+    throw new PlatformApiError(
+      400,
+      "empty_tokenhost_upload",
+      "Token Host upload body must not be empty",
+    );
+  }
+  if (declaredSize !== undefined && actualSize !== size) {
+    throw new PlatformApiError(
+      400,
+      "invalid_tokenhost_upload_size",
+      "x-tokenhost-upload-size does not match the uploaded body size",
+      { declaredSize: decimal(size), actualSize: decimal(actualSize) },
+    );
+  }
+
+  const fileName = safeTokenHostFileName(header(headers, "x-tokenhost-upload-filename"));
+  const contentType = normalizeContentType(header(headers, "content-type"));
+  const idempotencyKey = normalizeIdempotencyKey(
+    header(headers, "x-tokenhost-idempotency-key") ??
+      header(headers, "idempotency-key") ??
+      nextTokenHostUploadIdempotencyKey({ fileName, contentType, size }),
+  );
+
+  return {
+    request: {
+      accountId: account.accountId,
+      user: account.user,
+      idempotencyKey,
+      contentHash: keccak256(
+        stringToHex(`foc-platform-tokenhost-upload-content:v1:${fileName}:${contentType}:${size}`),
+      ),
+      metadataHash: keccak256(
+        stringToHex(`foc-platform-tokenhost-upload-metadata:v1:${fileName}:${contentType}`),
+      ),
+      size: decimal(size),
+      requestedCopies: 2,
+      withCDN: true,
+      maxCost: "0",
+      requestExpiresAt: undefined,
+    },
+    bytes: {
+      body,
+      byteLength: decimal(actualSize),
+      fileName,
+      contentType,
+      tokenHostUpload: true,
+    },
+    tokenHost: {
+      fileName,
+      contentType,
+      size: decimal(size),
+    },
+  };
+}
+
+let tokenHostUploadSequence = 0;
+
+function nextTokenHostUploadIdempotencyKey({ fileName, contentType, size }) {
+  tokenHostUploadSequence += 1;
+  return `tokenhost-upload:${Date.now()}:${tokenHostUploadSequence}:${fileName}:${contentType}:${size}`;
+}
+
+function uploadBodySize(body) {
+  if (body === undefined || body === null) return 0n;
+  if (typeof body === "string") return BigInt(new TextEncoder().encode(body).byteLength);
+  if (typeof body === "number" || typeof body === "bigint" || typeof body === "boolean") {
+    return 0n;
+  }
+  if (body instanceof ArrayBuffer) return BigInt(body.byteLength);
+  if (ArrayBuffer.isView(body)) return BigInt(body.byteLength);
+  if (typeof body.byteLength === "number" && Number.isSafeInteger(body.byteLength)) {
+    return BigInt(body.byteLength);
+  }
+  if (typeof body.size === "number" && Number.isSafeInteger(body.size)) {
+    return BigInt(body.size);
+  }
+  if (typeof body.length === "number" && Number.isSafeInteger(body.length)) {
+    return BigInt(body.length);
+  }
+  return 0n;
+}
+
+function safeTokenHostFileName(value) {
+  const fileName = String(value ?? "upload.bin")
+    .split(/[\\/]/)
+    .pop()
+    ?.trim();
+  return fileName || "upload.bin";
+}
+
+function normalizeContentType(value) {
+  const contentType = String(value ?? "application/octet-stream")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  return contentType || "application/octet-stream";
+}
+
 function matchRoute(method, pathname, searchParams = new URLSearchParams()) {
   if (
     method === "POST" &&
     (pathname === "/storage/upload" || pathname === "/storage/upload-requests")
   ) {
     return { name: "createUpload", params: {} };
+  }
+
+  if (method === "POST" && pathname === "/storage/tokenhost/upload") {
+    return { name: "tokenHostUpload", params: {} };
+  }
+
+  if ((method === "GET" || method === "HEAD") && pathname === "/storage/tokenhost/upload/status") {
+    return { name: "tokenHostUploadStatus", params: {} };
   }
 
   const uploadBytes = pathname.match(/^\/storage\/uploads\/([0-9]+)\/bytes$/);

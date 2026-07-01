@@ -187,6 +187,74 @@ test("Token Host status endpoint rejects missing object id before adapter work",
   assert.equal(registry.objects.size, 0);
 });
 
+test("Token Host generated upload adapter accepts bytes and returns upload metadata", async () => {
+  const registry = createMemoryRegistry();
+  const api = createPlatformApi({ registry });
+  const bytes = new Uint8Array([1, 2, 3, 4]);
+
+  const status = await api.handle({
+    method: "GET",
+    path: "/storage/tokenhost/upload/status",
+  });
+  const upload = await api.handle({
+    method: "POST",
+    path: "/storage/tokenhost/upload",
+    headers: {
+      ...platformHeaders("tokenhost-user"),
+      "content-type": "image/png",
+      "x-tokenhost-upload-filename": "launch.png",
+      "x-tokenhost-upload-size": String(bytes.byteLength),
+    },
+    body: bytes,
+  });
+
+  assert.equal(status.status, 200);
+  assert.equal(status.body.ok, true);
+  assert.equal(status.body.endpointUrl, "/storage/tokenhost/upload");
+  assert.equal(upload.status, 200);
+  assert.equal(upload.body.ok, true);
+  assert.equal(upload.body.upload.url, "/storage/objects/1");
+  assert.equal(upload.body.upload.size, "4");
+  assert.equal(upload.body.upload.provider, "filecoin_onchain_cloud");
+  assert.equal(upload.body.upload.runnerMode, "remote");
+  assert.equal(upload.body.upload.contentType, "image/png");
+  assert.equal(upload.body.upload.metadata.objectId, "1");
+  assert.equal(registry.createCalls[0].request.size, "4");
+  assert.equal(registry.createCalls[0].request.requestedCopies, 2);
+});
+
+test("Token Host generated upload adapter rejects empty or mismatched byte uploads", async () => {
+  const registry = createMemoryRegistry();
+  const api = createPlatformApi({ registry });
+
+  const empty = await api.handle({
+    method: "POST",
+    path: "/storage/tokenhost/upload",
+    headers: {
+      ...platformHeaders("tokenhost-user"),
+      "x-tokenhost-upload-filename": "empty.bin",
+      "x-tokenhost-upload-size": "1",
+    },
+    body: new Uint8Array(),
+  });
+  const mismatch = await api.handle({
+    method: "POST",
+    path: "/storage/tokenhost/upload",
+    headers: {
+      ...platformHeaders("tokenhost-user"),
+      "x-tokenhost-upload-filename": "wrong-size.bin",
+      "x-tokenhost-upload-size": "10",
+    },
+    body: new Uint8Array([1, 2, 3]),
+  });
+
+  assert.equal(empty.status, 400);
+  assert.equal(empty.body.error.code, "empty_tokenhost_upload");
+  assert.equal(mismatch.status, 400);
+  assert.equal(mismatch.body.error.code, "invalid_tokenhost_upload_size");
+  assert.equal(registry.objects.size, 0);
+});
+
 test("authorization mapping protects status, object, and usage reads", async () => {
   const registry = createMemoryRegistry();
   const api = createPlatformApi({ registry });

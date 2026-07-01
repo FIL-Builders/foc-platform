@@ -10,6 +10,24 @@ export function createTokenHostDemoClient({
   const headers = createTokenHostAuthHeaders({ userId, walletAddress });
 
   return {
+    async uploadFile(input = {}) {
+      const bytes = input.bytes ?? new Uint8Array(input.size ?? 1);
+      const size = input.size ?? uploadBodySize(bytes);
+      return tokenHostStateFromResponse(
+        await api.handle({
+          method: "POST",
+          path: "/storage/tokenhost/upload",
+          headers: {
+            ...headers,
+            "content-type": input.contentType ?? "application/octet-stream",
+            "x-tokenhost-upload-filename": input.fileName ?? "upload.bin",
+            "x-tokenhost-upload-size": String(size),
+          },
+          body: bytes,
+        }),
+      );
+    },
+
     async requestUpload(input = {}) {
       return tokenHostStateFromResponse(
         await api.handle({
@@ -186,4 +204,15 @@ function uploadLinks(objectId) {
     object: `/storage/objects/${objectId}`,
     usage: "/usage",
   };
+}
+
+function uploadBodySize(body) {
+  if (body === undefined || body === null) return 0;
+  if (typeof body === "string") return new TextEncoder().encode(body).byteLength;
+  if (body instanceof ArrayBuffer) return body.byteLength;
+  if (ArrayBuffer.isView(body)) return body.byteLength;
+  if (typeof body.byteLength === "number") return body.byteLength;
+  if (typeof body.size === "number") return body.size;
+  if (typeof body.length === "number") return body.length;
+  return 0;
 }
