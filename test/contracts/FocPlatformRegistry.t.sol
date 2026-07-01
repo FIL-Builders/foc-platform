@@ -130,6 +130,10 @@ contract FocPlatformRegistryTest {
 
         FocPlatformRegistry.AccountUsage memory usage = registry.getAccountUsage(ACCOUNT_ID);
         require(usage.reservedCost == params.maxCost, "reserved cost mismatch");
+        require(
+            usage.pendingBytes == uint256(params.size) * params.requestedCopies,
+            "pending bytes mismatch"
+        );
         require(usage.totalRequestedUploads == 1, "request counter mismatch");
 
         vm.prank(RELAYER);
@@ -169,6 +173,7 @@ contract FocPlatformRegistryTest {
 
         FocPlatformRegistry.AccountUsage memory usage = registry.getAccountUsage(ACCOUNT_ID);
         require(usage.reservedCost == 0, "reservation not released");
+        require(usage.pendingBytes == 0, "pending bytes not released");
         require(usage.activeBytes == uint256(params.size) * 2, "active bytes mismatch");
         require(usage.activeObjects == 1, "active object mismatch");
         require(usage.totalActualCost == 7 ether, "actual cost counter mismatch");
@@ -208,6 +213,7 @@ contract FocPlatformRegistryTest {
 
         FocPlatformRegistry.AccountUsage memory usage = registry.getAccountUsage(ACCOUNT_ID);
         require(usage.reservedCost == 0, "reservation not released");
+        require(usage.pendingBytes == 0, "pending bytes not released");
         require(usage.activeBytes == params.size, "partial active bytes mismatch");
         require(usage.activeObjects == 1, "partial object mismatch");
         require(usage.totalActualCost == 3 ether, "partial actual cost mismatch");
@@ -273,6 +279,19 @@ contract FocPlatformRegistryTest {
         registry.finalizeUpload(objectId, receipt);
 
         receipt = _receipt(params, 2, 7 ether);
+        receipt.requestedCopies = 1;
+
+        vm.prank(COORDINATOR);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FocPlatformRegistry.RequestedCopyCountMismatch.selector,
+                receipt.requestedCopies,
+                params.requestedCopies
+            )
+        );
+        registry.finalizeUpload(objectId, receipt);
+
+        receipt = _receipt(params, 2, 7 ether);
         receipt.completedCopies = 1;
 
         vm.prank(COORDINATOR);
@@ -282,7 +301,7 @@ contract FocPlatformRegistryTest {
         registry.finalizeUpload(objectId, receipt);
     }
 
-    function testFinalizeRejectsActiveByteCapOverflow() public {
+    function testRequestRejectsPendingByteCapOverflow() public {
         FocPlatformRegistry.PolicyConfig memory cappedPolicy = _policy(false);
         cappedPolicy.maxActiveBytesPerAccount = 1024;
         registry.setPolicy(cappedPolicy);
@@ -297,15 +316,19 @@ contract FocPlatformRegistryTest {
         vm.prank(RELAYER);
         uint256 firstObjectId = registry.requestUpload(first, "");
 
+        FocPlatformRegistry.AccountUsage memory usage = registry.getAccountUsage(ACCOUNT_ID);
+        require(usage.pendingBytes == 1024, "first request not pending");
+
         vm.prank(RELAYER);
-        uint256 secondObjectId = registry.requestUpload(second, "");
+        vm.expectRevert(abi.encodeWithSelector(FocPlatformRegistry.InvalidPolicy.selector));
+        registry.requestUpload(second, "");
 
         vm.prank(COORDINATOR);
         registry.finalizeUpload(firstObjectId, _receipt(first, 1, 1 ether));
 
-        vm.prank(COORDINATOR);
-        vm.expectRevert(abi.encodeWithSelector(FocPlatformRegistry.InvalidPolicy.selector));
-        registry.finalizeUpload(secondObjectId, _receipt(second, 1, 1 ether));
+        usage = registry.getAccountUsage(ACCOUNT_ID);
+        require(usage.activeBytes == 1024, "active bytes mismatch");
+        require(usage.pendingBytes == 0, "pending bytes not released");
     }
 
     function testCoordinatorFinalizesFailureWithoutActiveUsage() public {
@@ -342,6 +365,7 @@ contract FocPlatformRegistryTest {
 
         FocPlatformRegistry.AccountUsage memory usage = registry.getAccountUsage(ACCOUNT_ID);
         require(usage.reservedCost == 0, "reservation not released");
+        require(usage.pendingBytes == 0, "pending bytes not released");
         require(usage.activeBytes == 0, "failed upload counted active bytes");
         require(usage.totalFailedUploads == 1, "failed counter mismatch");
         require(usage.totalActualCost == 0, "failed actual cost mismatch");
@@ -366,8 +390,29 @@ contract FocPlatformRegistryTest {
 
         FocPlatformRegistry.AccountUsage memory usage = registry.getAccountUsage(ACCOUNT_ID);
         require(usage.reservedCost == 0, "reservation not released");
+        require(usage.pendingBytes == 0, "pending bytes not released");
         require(usage.totalActualCost == 2 ether, "failure cost counter mismatch");
         require(usage.totalFailedUploads == 1, "failed counter mismatch");
+    }
+
+    function testCoordinatorCannotFailExpiredRequestEvenWhenFailureChargesAllowed() public {
+        FocPlatformRegistry.PolicyConfig memory chargePolicy = _policy(false);
+        chargePolicy.allowFailureCharges = true;
+        registry.setPolicy(chargePolicy);
+
+        FocPlatformRegistry.RequestUploadParams memory params = _defaultParams(address(0));
+        params.requestExpiresAt = uint64(block.timestamp + 1 hours);
+
+        vm.prank(RELAYER);
+        uint256 objectId = registry.requestUpload(params, "");
+
+        vm.warp(params.requestExpiresAt + 1);
+
+        vm.prank(COORDINATOR);
+        vm.expectRevert(
+            abi.encodeWithSelector(FocPlatformRegistry.RequestExpired.selector, objectId)
+        );
+        registry.failUpload(objectId, keccak256("provider-accepted-work"), 2 ether);
     }
 
     function testUnauthorizedCoordinatorCannotStart() public {
@@ -443,6 +488,7 @@ contract FocPlatformRegistryTest {
 
         FocPlatformRegistry.AccountUsage memory usage = registry.getAccountUsage(ACCOUNT_ID);
         require(usage.reservedCost == 0, "reservation not released");
+        require(usage.pendingBytes == 0, "pending bytes not released");
         require(usage.totalFailedUploads == 1, "failed counter mismatch");
         require(usage.activeBytes == 0, "failed upload counted active bytes");
 
@@ -476,6 +522,7 @@ contract FocPlatformRegistryTest {
 
         FocPlatformRegistry.AccountUsage memory usage = registry.getAccountUsage(ACCOUNT_ID);
         require(usage.reservedCost == 0, "reservation not released");
+        require(usage.pendingBytes == 0, "pending bytes not released");
         require(usage.activeBytes == 0, "expired upload counted active bytes");
     }
 
@@ -571,6 +618,7 @@ contract FocPlatformRegistryTest {
 
         FocPlatformRegistry.AccountUsage memory usage = registry.getAccountUsage(ACCOUNT_ID);
         require(usage.reservedCost == 0, "reservation not released");
+        require(usage.pendingBytes == 0, "pending bytes not released");
     }
 
     function testCancelByUnauthorizedCallerReverts() public {

@@ -13,19 +13,24 @@ invariants instead of replacing them.
 ## Current Invariants
 
 - `requestUpload` creates monotonically increasing `objectId` records and
-  reserves `maxCost` under `(accountId, idempotencyKey)`.
+  reserves `maxCost` plus pending bytes under `(accountId, idempotencyKey)`.
 - Upload requests can be created by the direct user, an allowlisted relayer, or
   any caller carrying a valid EIP-712 user signature.
 - `startUpload`, `finalizeUpload`, `failUpload`, and `recordDataset` require an
   allowlisted, unexpired coordinator.
+- `CoordinatorPolicy.maxFinalizeDelay` and `permissionsHash` are v1
+  admin/reconciliation metadata. The registry enforces `allowed` and
+  `sessionKeyExpiresAt`; FOC session-key permission checks remain external to
+  this contract.
 - `finalizeUpload` accepts committed, partial, or failed receipts and rejects
   expired requests, zero receipt hashes, copy-count mismatches, size mismatches,
   and costs above `maxCost`.
-- Successful and partial finalization release reservations, count active bytes
-  only for completed copies, retain per-copy receipts, and record the FOC
-  payer/root address for reconciliation.
+- Successful and partial finalization release reservations and pending bytes,
+  count active bytes only for completed copies, retain per-copy receipts, and
+  record the FOC payer/root address for reconciliation.
 - Failure, cancellation, and expiry release reservations without counting active
-  bytes.
+  bytes. `failUpload` also rejects expired requests so late failures cannot
+  charge after the user-visible deadline.
 - Terminal statuses cannot be finalized, failed, cancelled, or expired again.
 
 ## Deferred Semantics
@@ -46,7 +51,9 @@ Run the registry checks with:
 ```sh
 pnpm test:contracts
 forge test --gas-report
+pnpm build:artifacts
 ```
 
 The gas report provides the contract deployment size and per-function gas
-snapshot used during issue review.
+snapshot used during issue review. The artifact build writes the committed ABI
+and bytecode snapshot consumed by deployment/read-model tooling.
