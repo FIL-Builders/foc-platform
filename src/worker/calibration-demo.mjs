@@ -1094,6 +1094,13 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       padding: 18px 14px;
       color: var(--muted);
     }
+    .subtable-title {
+      padding: 12px 14px 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
     .error {
       color: var(--bad);
     }
@@ -1325,14 +1332,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       copy(row.storageClass),
       esc(row.updatedAt),
     ]);
-    if (state.view === "coordinators") return table(["Coordinator", "Allowed", "Session", "Expires", "Permissions", "Relayers"], body.coordinators, (row, index) => [
-      copy(row.coordinator),
-      pill(row.allowed ? "active" : "disabled"),
-      pill(row.sessionStatus),
-      esc(row.sessionKeyExpiresAt),
-      copy(row.permissionsHash),
-      esc(index === 0 ? (body.relayers || []).length : ""),
-    ]);
+    if (state.view === "coordinators") return renderCoordinatorView(body);
     return table(["Severity", "Code", "Object", "Account", "Provider", "Current"], body.reconciliation?.checks || [], (row) => [
       pill(row.severity),
       esc(row.code),
@@ -1342,12 +1342,46 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       esc(row.actualCopies || row.actualActiveBytes || row.actualPendingBytes || row.actualReservedCost || ""),
     ]);
   }
+  function renderCoordinatorView(body) {
+    const coordinatorRows = body.coordinators || [];
+    const relayerRows = body.relayers || [];
+    const sections = [];
+    if (coordinatorRows.length > 0) {
+      sections.push(
+        '<div class="subtable-title">Coordinator policies</div>' +
+        tableMarkup(["Coordinator", "Allowed", "Session", "Expires", "Permissions"], coordinatorRows, (row) => [
+          copy(row.coordinator),
+          pill(row.allowed ? "active" : "disabled"),
+          pill(row.sessionStatus),
+          esc(row.sessionKeyExpiresAt),
+          copy(row.permissionsHash),
+        ]),
+      );
+    }
+    if (relayerRows.length > 0) {
+      sections.push(
+        '<div class="subtable-title">Relayers</div>' +
+        tableMarkup(["Relayer", "Allowed"], relayerRows, (row) => [
+          copy(row.relayer),
+          pill(row.allowed ? "active" : "disabled"),
+        ]),
+      );
+    }
+    if (sections.length === 0) {
+      $("table-wrap").innerHTML = '<div class="empty">No rows on this page</div>';
+      return;
+    }
+    $("table-wrap").innerHTML = sections.join("");
+  }
+  function tableMarkup(headers, rows, mapRow) {
+    return '<table><thead><tr>' + headers.map((header) => '<th>' + esc(header) + '</th>').join("") + '</tr></thead><tbody>' + rows.map((row, index) => '<tr>' + mapRow(row, index).map((cell) => '<td>' + cell + '</td>').join("") + '</tr>').join("") + '</tbody></table>';
+  }
   function table(headers, rows, mapRow) {
     if (!rows || rows.length === 0) {
       $("table-wrap").innerHTML = '<div class="empty">No rows on this page</div>';
       return;
     }
-    $("table-wrap").innerHTML = '<table><thead><tr>' + headers.map((header) => '<th>' + esc(header) + '</th>').join("") + '</tr></thead><tbody>' + rows.map((row, index) => '<tr>' + mapRow(row, index).map((cell) => '<td>' + cell + '</td>').join("") + '</tr>').join("") + '</tbody></table>';
+    $("table-wrap").innerHTML = tableMarkup(headers, rows, mapRow);
   }
   function renderFooter(body) {
     const pagination = state.pagination;

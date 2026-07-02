@@ -71,6 +71,9 @@ test("Worker serves HTML and public evidence endpoints", async () => {
   assert.match(htmlBody, /FOC Platform Admin/);
   assert.match(htmlBody, /\/api\/admin\/files/);
   assert.match(htmlBody, /data-page-action="next"/);
+  assert.match(htmlBody, /function renderCoordinatorView/);
+  assert.match(htmlBody, /const relayerRows = body\.relayers \|\| \[\];/);
+  assert.match(htmlBody, /Relayers/);
   assert.match(htmlBody, /const liveReads = false;/);
   assert.match(await offlineHtml.text(), /const liveReads = false;/);
   assert.match(await liveHtml.text(), /const liveReads = true;/);
