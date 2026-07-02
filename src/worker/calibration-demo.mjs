@@ -1405,7 +1405,23 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
   }
   function primaryPagination(pagination) {
     if (!pagination) return null;
-    return pagination.coordinators || pagination;
+    if (pagination.coordinators || pagination.relayers) {
+      return combinedOffsetPagination([pagination.coordinators, pagination.relayers]);
+    }
+    return pagination;
+  }
+  function combinedOffsetPagination(pages) {
+    const available = pages.filter(Boolean);
+    if (available.length === 0) return null;
+    const pageWithNext = available.find((page) => page.hasNextPage);
+    const primary = pageWithNext || available[0];
+    return {
+      ...primary,
+      mode: "offset",
+      offset: primary.offset || available[0].offset || "0",
+      nextOffset: pageWithNext?.nextOffset || primary.nextOffset || primary.offset || "0",
+      hasNextPage: available.some((page) => page.hasNextPage),
+    };
   }
   function currentPage() {
     return state.pages[state.view] || {};

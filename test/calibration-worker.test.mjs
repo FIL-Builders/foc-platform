@@ -72,6 +72,7 @@ test("Worker serves HTML and public evidence endpoints", async () => {
   assert.match(htmlBody, /\/api\/admin\/files/);
   assert.match(htmlBody, /data-page-action="next"/);
   assert.match(htmlBody, /function renderCoordinatorView/);
+  assert.match(htmlBody, /function combinedOffsetPagination/);
   assert.match(htmlBody, /const relayerRows = body\.relayers \|\| \[\];/);
   assert.match(htmlBody, /Relayers/);
   assert.match(htmlBody, /const liveReads = false;/);
