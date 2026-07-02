@@ -79,6 +79,10 @@ test("Worker serves HTML and public evidence endpoints", async () => {
   assert.match(htmlBody, /const requestId = \+\+state\.requestSeq/);
   assert.match(htmlBody, /requestId !== state\.requestSeq/);
   assert.match(htmlBody, /function renderView\(body, view = state\.view\)/);
+  assert.match(htmlBody, /function resetAllPages\(\)/);
+  assert.match(htmlBody, /Object\.keys\(state\.pages\)\.forEach\(\(view\) => resetPage\(view\)\);/);
+  assert.match(htmlBody, /\["status", "provider", "limit"\]\.forEach[\s\S]*resetAllPages\(\);/);
+  assert.match(htmlBody, /\$\("q"\)\.addEventListener\("input"[\s\S]*resetAllPages\(\);/);
   assert.match(htmlBody, /Dashboard reads unavailable/);
   assert.match(htmlBody, /const relayerRows = body\.relayers \|\| \[\];/);
   assert.match(htmlBody, /const cursorViews = new Set\(\["files", "reconciliation"\]\);/);

@@ -1525,9 +1525,12 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
   function currentPage(view = state.view) {
     return state.pages[view] || {};
   }
-  function resetPage() {
-    if (cursorViews.has(state.view)) state.pages[state.view].cursor = "0";
-    if (offsetViews.has(state.view)) state.pages[state.view].offset = "0";
+  function resetPage(view = state.view) {
+    if (cursorViews.has(view)) state.pages[view].cursor = "0";
+    if (offsetViews.has(view)) state.pages[view].offset = "0";
+  }
+  function resetAllPages() {
+    Object.keys(state.pages).forEach((view) => resetPage(view));
   }
   function applyPageAction(action) {
     const pagination = state.pagination;
@@ -1548,13 +1551,13 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     loadView();
   }));
   ["status", "provider", "limit"].forEach((id) => $(id).addEventListener("change", () => {
-    resetPage();
+    resetAllPages();
     loadView();
   }));
   $("q").addEventListener("input", () => {
     clearTimeout(state.searchTimer);
     state.searchTimer = setTimeout(() => {
-      resetPage();
+      resetAllPages();
       loadView();
     }, 180);
   });
