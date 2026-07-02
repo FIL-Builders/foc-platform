@@ -73,6 +73,9 @@ test("Worker serves HTML and public evidence endpoints", async () => {
   assert.match(htmlBody, /data-page-action="next"/);
   assert.match(htmlBody, /function renderCoordinatorView/);
   assert.match(htmlBody, /function combinedOffsetPagination/);
+  assert.match(htmlBody, /function renderSkippedView/);
+  assert.match(htmlBody, /body\.source === "skipped"/);
+  assert.match(htmlBody, /Dashboard reads unavailable/);
   assert.match(htmlBody, /const relayerRows = body\.relayers \|\| \[\];/);
   assert.match(htmlBody, /const cursorViews = new Set\(\["files", "reconciliation"\]\);/);
   assert.match(htmlBody, /Relayers/);
@@ -136,6 +139,11 @@ test("Worker dashboard APIs expose injected direct-read admin pages", async () =
     env,
     { dashboardAdapter },
   );
+  const skippedFiles = await handleCalibrationDemoRequest(
+    new Request("https://demo.example/api/admin/files"),
+    env,
+    { dashboardAdapter },
+  );
   const overview = await handleCalibrationDemoRequest(
     new Request("https://demo.example/api/admin/overview?live=true"),
     env,
@@ -186,6 +194,10 @@ test("Worker dashboard APIs expose injected direct-read admin pages", async () =
   const skippedOverviewBody = await skippedOverview.json();
   assert.equal(skippedOverviewBody.source, "skipped");
   assert.equal(skippedOverviewBody.metadata.dashboardLiveDefault, false);
+  assert.equal(skippedFiles.status, 200);
+  const skippedFilesBody = await skippedFiles.json();
+  assert.equal(skippedFilesBody.source, "skipped");
+  assert.equal("files" in skippedFilesBody, false);
 
   assert.equal(overview.status, 200);
   const overviewBody = await overview.json();

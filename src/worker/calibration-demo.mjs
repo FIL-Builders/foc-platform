@@ -1162,6 +1162,11 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       padding: 18px 14px;
       color: var(--muted);
     }
+    .empty strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--ink);
+    }
     .subtable-title {
       padding: 12px 14px 6px;
       color: var(--muted);
@@ -1374,6 +1379,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
   }
   function renderView(body) {
     state.pagination = primaryPagination(body.pagination);
+    if (body.source === "skipped") return renderSkippedView(body);
     if (state.view === "files") return table(["Object", "Status", "Account", "Size", "Copies", "Providers", "Receipt", "Coordinator"], body.files, (row) => [
       copy(row.objectId),
       pill(row.status),
@@ -1411,6 +1417,15 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       esc(row.providerId || ""),
       esc(row.actualCopies || row.actualActiveBytes || row.actualPendingBytes || row.actualReservedCost || ""),
     ]);
+  }
+  function renderSkippedView(body) {
+    state.pagination = null;
+    const metadata = body.metadata || {};
+    const reason = metadata.dashboardLiveDefault === false
+      ? "Direct onchain reads are skipped because the configured registry runtime does not match the pagination-capable artifact."
+      : "Direct onchain reads are skipped for this request.";
+    $("table-wrap").innerHTML =
+      '<div class="empty"><strong>Dashboard reads unavailable</strong><span>' + esc(reason) + '</span></div>';
   }
   function renderCoordinatorView(body) {
     const coordinatorRows = body.coordinators || [];
