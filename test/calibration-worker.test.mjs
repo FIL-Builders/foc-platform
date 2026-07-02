@@ -75,6 +75,10 @@ test("Worker serves HTML and public evidence endpoints", async () => {
   assert.match(htmlBody, /function combinedOffsetPagination/);
   assert.match(htmlBody, /function renderSkippedView/);
   assert.match(htmlBody, /body\.source === "skipped"/);
+  assert.match(htmlBody, /summary\.warningCount === undefined/);
+  assert.match(htmlBody, /const requestId = \+\+state\.requestSeq/);
+  assert.match(htmlBody, /requestId !== state\.requestSeq/);
+  assert.match(htmlBody, /function renderView\(body, view = state\.view\)/);
   assert.match(htmlBody, /Dashboard reads unavailable/);
   assert.match(htmlBody, /const relayerRows = body\.relayers \|\| \[\];/);
   assert.match(htmlBody, /const cursorViews = new Set\(\["files", "reconciliation"\]\);/);

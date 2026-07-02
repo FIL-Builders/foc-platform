@@ -1295,6 +1295,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     view: "files",
     summary: null,
     pagination: null,
+    requestSeq: 0,
     pages: {
       files: { cursor: "0" },
       accounts: { offset: "0" },
@@ -1321,19 +1322,19 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     const tone = ["Committed", "active", "matched"].includes(normalized) ? "good" : ["Failed", "Expired", "mismatch", "expired", "disabled"].includes(normalized) ? "bad" : "warn";
     return '<span class="pill ' + tone + '">' + esc(normalized) + '</span>';
   };
-  async function fetchJson(path) {
+  async function fetchJson(path, view = state.view) {
     const url = new URL(path, location.origin);
     url.searchParams.set("limit", $("limit").value);
     url.searchParams.set("live", liveReads ? "true" : "false");
     const q = $("q").value.trim();
     const status = $("status").value;
     const provider = $("provider").value.trim();
-    const page = currentPage();
-    if (cursorViews.has(state.view) && page.cursor !== "0") url.searchParams.set("cursor", page.cursor);
-    if (offsetViews.has(state.view) && page.offset !== "0") url.searchParams.set("offset", page.offset);
+    const page = currentPage(view);
+    if (cursorViews.has(view) && page.cursor !== "0") url.searchParams.set("cursor", page.cursor);
+    if (offsetViews.has(view) && page.offset !== "0") url.searchParams.set("offset", page.offset);
     if (q) url.searchParams.set("q", q);
-    if (status && state.view === "files") url.searchParams.set("status", status);
-    if (provider && ["files", "datasets"].includes(state.view)) url.searchParams.set("provider", provider);
+    if (status && view === "files") url.searchParams.set("status", status);
+    if (provider && ["files", "datasets"].includes(view)) url.searchParams.set("provider", provider);
     const response = await fetch(url);
     const body = await response.json();
     if (!response.ok) {
@@ -1347,28 +1348,37 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     renderMetrics(body.summary);
   }
   async function loadView() {
-    $("table-wrap").innerHTML = '<div class="empty">Loading ' + esc(state.view) + '</div>';
-    $("table-title").textContent = title(state.view);
+    const view = state.view;
+    const requestId = ++state.requestSeq;
+    $("table-wrap").innerHTML = '<div class="empty">Loading ' + esc(view) + '</div>';
+    $("table-title").textContent = title(view);
     document.querySelectorAll(".nav button").forEach((button) => {
-      button.setAttribute("aria-selected", String(button.dataset.view === state.view));
+      button.setAttribute("aria-selected", String(button.dataset.view === view));
     });
     try {
-      const body = await fetchJson(endpoints[state.view]);
-      renderView(body);
-      renderFooter(body);
+      const body = await fetchJson(endpoints[view], view);
+      if (requestId !== state.requestSeq || view !== state.view) return;
+      renderView(body, view);
+      renderFooter(body, view);
     } catch (error) {
+      if (requestId !== state.requestSeq || view !== state.view) return;
       $("table-wrap").innerHTML = '<div class="error">' + esc(error.message) + '</div>';
       $("footer").textContent = "Registry read unavailable";
     }
   }
   function renderMetrics(summary = {}) {
+    const warningsUnavailable =
+      summary.warningCount === undefined ||
+      summary.warningCount === null ||
+      summary.mismatchCount === undefined ||
+      summary.mismatchCount === null;
     const metrics = [
       ["Objects", summary.objectCount],
       ["Accounts", summary.accountCount],
       ["Datasets", summary.datasetCount],
       ["Providers", summary.providerCount],
       ["Coordinators", summary.coordinatorCount],
-      ["Warnings", summary.warningCount === null || summary.mismatchCount === null ? null : Number(summary.warningCount || 0) + Number(summary.mismatchCount || 0)],
+      ["Warnings", warningsUnavailable ? null : Number(summary.warningCount || 0) + Number(summary.mismatchCount || 0)],
     ];
     $("metrics").innerHTML = metrics.map(([label, value]) => '<div class="metric"><span>' + esc(label) + '</span><strong>' + esc(value ?? "n/a") + '</strong></div>').join("");
     $("nav-files").textContent = summary.objectCount ?? "";
@@ -1377,10 +1387,10 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     $("nav-coordinators").textContent = summary.coordinatorCount ?? "";
     $("nav-reconciliation").textContent = summary.mismatchCount ?? "";
   }
-  function renderView(body) {
+  function renderView(body, view = state.view) {
     state.pagination = primaryPagination(body.pagination);
     if (body.source === "skipped") return renderSkippedView(body);
-    if (state.view === "files") return table(["Object", "Status", "Account", "Size", "Copies", "Providers", "Receipt", "Coordinator"], body.files, (row) => [
+    if (view === "files") return table(["Object", "Status", "Account", "Size", "Copies", "Providers", "Receipt", "Coordinator"], body.files, (row) => [
       copy(row.objectId),
       pill(row.status),
       copy(row.accountId),
@@ -1390,7 +1400,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       copy(row.receiptHash),
       copy(row.coordinator),
     ]);
-    if (state.view === "accounts") return table(["Account", "Objects", "Active bytes", "Pending bytes", "Reserved", "Finalized", "Failed"], body.accounts, (row) => [
+    if (view === "accounts") return table(["Account", "Objects", "Active bytes", "Pending bytes", "Reserved", "Finalized", "Failed"], body.accounts, (row) => [
       copy(row.accountId),
       esc((row.objectIds || []).join(", ") || row.activeObjects),
       esc(row.activeBytes),
@@ -1399,7 +1409,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       esc(row.totalFinalizedUploads),
       esc(row.totalFailedUploads),
     ]);
-    if (state.view === "datasets") return table(["Dataset", "Provider", "Account", "Payer", "CDN", "Storage class", "Updated"], body.datasets, (row) => [
+    if (view === "datasets") return table(["Dataset", "Provider", "Account", "Payer", "CDN", "Storage class", "Updated"], body.datasets, (row) => [
       copy(row.datasetId),
       esc(row.providerId),
       copy(row.accountId),
@@ -1408,7 +1418,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       copy(row.storageClass),
       esc(row.updatedAt),
     ]);
-    if (state.view === "coordinators") return renderCoordinatorView(body);
+    if (view === "coordinators") return renderCoordinatorView(body);
     return table(["Severity", "Code", "Object", "Account", "Provider", "Current"], body.reconciliation?.checks || [], (row) => [
       pill(row.severity),
       esc(row.code),
@@ -1468,7 +1478,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     }
     $("table-wrap").innerHTML = tableMarkup(headers, rows, mapRow);
   }
-  function renderFooter(body) {
+  function renderFooter(body, view = state.view) {
     const pagination = state.pagination;
     const metadata = body.metadata || {};
     const readState = esc(metadata.sourceOfTruth) + " / read " + esc(metadata.readAt) + " / page limit " + esc($("limit").value);
@@ -1476,8 +1486,8 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       $("footer").innerHTML = '<span>' + readState + '</span>';
       return;
     }
-    const page = currentPage();
-    const isFirst = cursorViews.has(state.view) ? page.cursor === "0" : page.offset === "0";
+    const page = currentPage(view);
+    const isFirst = cursorViews.has(view) ? page.cursor === "0" : page.offset === "0";
     const position = pagination.mode === "objectIdCursor"
       ? "cursor " + esc(pagination.cursorIdExclusive || "0")
       : "offset " + esc(pagination.offset || "0");
@@ -1508,8 +1518,8 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       hasNextPage: available.some((page) => page.hasNextPage),
     };
   }
-  function currentPage() {
-    return state.pages[state.view] || {};
+  function currentPage(view = state.view) {
+    return state.pages[view] || {};
   }
   function resetPage() {
     if (cursorViews.has(state.view)) state.pages[state.view].cursor = "0";
