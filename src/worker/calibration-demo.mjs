@@ -1,6 +1,5 @@
 import { createPublicClient, getAddress, http, isAddress } from "viem";
 import { filecoinCalibration } from "viem/chains";
-import { buildAdminSurfaces } from "../admin/reconciliation.mjs";
 import { createTokenHostRegistryDirectReadAdapter } from "../demo/tokenhost-wrapper.mjs";
 import {
   registryAccountCountRead,
@@ -780,7 +779,7 @@ function filterDatasetRows(rows, query) {
 function filterCoordinatorRows(rows, query) {
   const coordinator = optionalString(query.get("coordinator"))?.toLowerCase();
   return textFilter(
-    rows.filter((row) => !coordinator || row.coordinator === coordinator),
+    rows.filter((row) => !coordinator || String(row.coordinator ?? "").toLowerCase() === coordinator),
     query,
     ["coordinator", "permissionsHash", "sessionStatus"],
   );

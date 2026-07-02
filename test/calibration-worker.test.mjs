@@ -13,7 +13,7 @@ const ACCOUNT_ID = `0x${"12".repeat(32)}`;
 const ACCOUNT_B = `0x${"34".repeat(32)}`;
 const USER = "0x0000000000000000000000000000000000001000";
 const PAYER = "0x0000000000000000000000000000000000002000";
-const COORDINATOR = "0x0000000000000000000000000000000000003000";
+const COORDINATOR = "0x000000000000000000000000000000000000abcd";
 const RELAYER = "0x0000000000000000000000000000000000004000";
 
 test("Worker evidence builder keeps privileged credentials out of public state", () => {
@@ -137,6 +137,13 @@ test("Worker dashboard APIs expose injected direct-read admin pages", async () =
     env,
     { dashboardAdapter },
   );
+  const uppercaseCoordinatorFilter = await handleCalibrationDemoRequest(
+    new Request(
+      "https://demo.example/api/admin/coordinators?coordinator=0x000000000000000000000000000000000000ABCD",
+    ),
+    env,
+    { dashboardAdapter },
+  );
   const reconciliation = await handleCalibrationDemoRequest(
     new Request("https://demo.example/api/admin/reconciliation"),
     env,
@@ -174,6 +181,10 @@ test("Worker dashboard APIs expose injected direct-read admin pages", async () =
   const coordinatorBody = await coordinators.json();
   assert.equal(coordinatorBody.coordinators[0].coordinator, COORDINATOR);
   assert.equal(coordinatorBody.relayers[0].relayer, RELAYER);
+  assert.equal(uppercaseCoordinatorFilter.status, 200);
+  assert.deepEqual((await uppercaseCoordinatorFilter.json()).coordinators.map((row) => row.coordinator), [
+    COORDINATOR,
+  ]);
 
   assert.equal(reconciliation.status, 200);
   assert.equal((await reconciliation.json()).reconciliation.status, "pending_external_evidence");
