@@ -92,7 +92,10 @@ routes expose page metadata with `cursor` or `offset`, and filters are
 page-scoped to keep Worker requests bounded. The committed demo config still points at live Calibration
 evidence for registry object `1`, provider/dataset/piece `4`/`12524`/`34`, and
 a committed registry finalization; issue #33 owns publishing updated public
-evidence for the direct pagination ABI. The deployed demo is available at
+evidence for the direct pagination ABI. Until that registry/runtime evidence
+matches the current artifact hash, the dashboard defaults to skipped read-only
+API responses instead of live dashboard reads; use `?live=true` only against an
+upgraded pagination-capable registry. The deployed demo is available at
 `https://foc-platform-calibration-demo.snissn.workers.dev`. Run
 `pnpm worker:dev` for a local Worker and `pnpm worker:dry-run` to validate the
 deploy bundle. The Worker must not receive private keys or session keys;

@@ -57,9 +57,13 @@ documented in
 
 The current deployed Worker and registry evidence predate the direct pagination
 ABI. The Worker code now has direct-onchain dashboard routes, but the deployed
-public evidence still points at the earlier registry. Issue #33 must publish
-updated evidence from a registry build that includes the pagination ABI before
-the dashboard stack can claim end-to-end public Calibration direct-read proof.
+public evidence still points at the earlier registry. For that configuration,
+the dashboard defaults to skipped read-only API responses instead of attempting
+live dashboard reads against missing count/list methods. `?live=true` should be
+used only with a registry whose runtime hash matches the current pagination ABI.
+Issue #33 must publish updated evidence from a registry build that includes the
+pagination ABI before the dashboard stack can claim end-to-end public
+Calibration direct-read proof.
 
 ## Public Endpoints
 

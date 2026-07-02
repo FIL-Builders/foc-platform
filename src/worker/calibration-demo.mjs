@@ -7,6 +7,7 @@ import {
   registryDatasetRecordCountRead,
   registryDirectReadDefaults,
   registryObjectCountRead,
+  registryArtifact,
   registryRelayerCountRead,
 } from "../registry/read-model.mjs";
 
@@ -179,10 +180,11 @@ export async function handleCalibrationDemoRequest(request, env = {}, options = 
 
   const url = new URL(request.url);
   const evidence = buildDemoEvidence(env);
+  const shouldReadDashboard = dashboardLiveReadsEnabled(url, evidence);
   const shouldReadRegistry = url.searchParams.get("live") !== "false";
 
   if (url.pathname === "/" || url.pathname === "/demo" || url.pathname === "/admin") {
-    return htmlResponse(renderAdminDashboardHtml(evidence, { live: shouldReadRegistry }));
+    return htmlResponse(renderAdminDashboardHtml(evidence, { live: shouldReadDashboard }));
   }
 
   if (url.pathname === "/api/health") {
@@ -205,7 +207,7 @@ export async function handleCalibrationDemoRequest(request, env = {}, options = 
       return jsonResponse({ error: { code: "not_found" } }, { status: 404 });
     }
 
-    if (!shouldReadRegistry) {
+    if (!shouldReadDashboard) {
       return jsonResponse({
         source: "skipped",
         route: dashboardRoute,
@@ -650,6 +652,24 @@ function dashboardApiRoute(pathname) {
   return Object.entries(DASHBOARD_API_ENDPOINTS).find(([, path]) => path === pathname)?.[0] ?? null;
 }
 
+function dashboardLiveReadsEnabled(url, evidence) {
+  const live = url.searchParams.get("live");
+  if (live === "true") return true;
+  if (live === "false") return false;
+  return dashboardDirectReadAbiMatches(evidence);
+}
+
+function dashboardDirectReadAbiMatches(evidence) {
+  return (
+    normalizeHash(evidence.registry.runtimeSha256) ===
+    normalizeHash(registryArtifact.deployedBytecodeSha256)
+  );
+}
+
+function normalizeHash(value) {
+  return optionalString(value)?.toLowerCase() ?? "";
+}
+
 function dashboardMetadata(evidence, env = {}) {
   const now = new Date();
   return {
@@ -660,6 +680,8 @@ function dashboardMetadata(evidence, env = {}) {
     registryAddress: evidence.registry.address,
     registryDeployTx: evidence.registry.deployTxHash,
     registryRuntimeSha256: evidence.registry.runtimeSha256,
+    expectedRuntimeSha256: registryArtifact.deployedBytecodeSha256,
+    dashboardLiveDefault: dashboardDirectReadAbiMatches(evidence),
     rpcUrl: optionalString(env.FILECOIN_CALIBRATION_RPC_URL) ?? DEFAULT_RPC_URL,
     readAt: now.toISOString(),
     readUnixTime: Math.floor(now.getTime() / 1000),
@@ -1220,7 +1242,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
   async function fetchJson(path) {
     const url = new URL(path, location.origin);
     url.searchParams.set("limit", $("limit").value);
-    if (!liveReads) url.searchParams.set("live", "false");
+    url.searchParams.set("live", liveReads ? "true" : "false");
     const q = $("q").value.trim();
     const status = $("status").value;
     const provider = $("provider").value.trim();

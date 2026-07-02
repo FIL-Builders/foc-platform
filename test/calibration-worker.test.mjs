@@ -7,6 +7,7 @@ import {
   buildDemoEvidence,
   handleCalibrationDemoRequest,
 } from "../src/worker/calibration-demo.mjs";
+import { registryArtifact } from "../src/registry/read-model.mjs";
 
 const REGISTRY = "0x7771d916a9d742B1D60597a332C7ABBd5796609c";
 const ACCOUNT_ID = `0x${"12".repeat(32)}`;
@@ -60,13 +61,19 @@ test("Worker serves HTML and public evidence endpoints", async () => {
     new Request("https://demo.example/admin?live=false"),
     { FOC_PLATFORM_REGISTRY_ADDRESS: REGISTRY },
   );
+  const liveHtml = await handleCalibrationDemoRequest(
+    new Request("https://demo.example/admin?live=true"),
+    { FOC_PLATFORM_REGISTRY_ADDRESS: REGISTRY },
+  );
 
   assert.equal(html.status, 200);
   const htmlBody = await html.text();
   assert.match(htmlBody, /FOC Platform Admin/);
   assert.match(htmlBody, /\/api\/admin\/files/);
   assert.match(htmlBody, /data-page-action="next"/);
+  assert.match(htmlBody, /const liveReads = false;/);
   assert.match(await offlineHtml.text(), /const liveReads = false;/);
+  assert.match(await liveHtml.text(), /const liveReads = true;/);
 
   assert.equal(evidence.status, 200);
   const evidenceBody = await evidence.json();
@@ -112,49 +119,73 @@ test("Worker dashboard APIs expose injected direct-read admin pages", async () =
     FOC_PLATFORM_DASHBOARD_DEFAULT_PAGE_LIMIT: "2",
   };
 
-  const overview = await handleCalibrationDemoRequest(
+  const skippedOverview = await handleCalibrationDemoRequest(
     new Request("https://demo.example/api/admin/overview"),
     env,
     { dashboardAdapter },
   );
+  const overview = await handleCalibrationDemoRequest(
+    new Request("https://demo.example/api/admin/overview?live=true"),
+    env,
+    { dashboardAdapter },
+  );
+  const upgradedOverview = await handleCalibrationDemoRequest(
+    new Request("https://demo.example/api/admin/overview"),
+    {
+      ...env,
+      FOC_PLATFORM_REGISTRY_RUNTIME_SHA256: registryArtifact.deployedBytecodeSha256,
+    },
+    { dashboardAdapter },
+  );
   const files = await handleCalibrationDemoRequest(
-    new Request("https://demo.example/api/admin/files?status=Committed&q=0000"),
+    new Request("https://demo.example/api/admin/files?live=true&status=Committed&q=0000"),
     env,
     { dashboardAdapter },
   );
   const accounts = await handleCalibrationDemoRequest(
-    new Request("https://demo.example/api/admin/accounts"),
+    new Request("https://demo.example/api/admin/accounts?live=true"),
     env,
     { dashboardAdapter },
   );
   const datasets = await handleCalibrationDemoRequest(
-    new Request("https://demo.example/api/admin/datasets?provider=111"),
+    new Request("https://demo.example/api/admin/datasets?live=true&provider=111"),
     env,
     { dashboardAdapter },
   );
   const coordinators = await handleCalibrationDemoRequest(
-    new Request("https://demo.example/api/admin/coordinators"),
+    new Request("https://demo.example/api/admin/coordinators?live=true"),
     env,
     { dashboardAdapter },
   );
   const uppercaseCoordinatorFilter = await handleCalibrationDemoRequest(
     new Request(
-      "https://demo.example/api/admin/coordinators?coordinator=0x000000000000000000000000000000000000ABCD",
+      "https://demo.example/api/admin/coordinators?live=true&coordinator=0x000000000000000000000000000000000000ABCD",
     ),
     env,
     { dashboardAdapter },
   );
   const reconciliation = await handleCalibrationDemoRequest(
-    new Request("https://demo.example/api/admin/reconciliation"),
+    new Request("https://demo.example/api/admin/reconciliation?live=true"),
     env,
     { dashboardAdapter },
   );
+
+  assert.equal(skippedOverview.status, 200);
+  const skippedOverviewBody = await skippedOverview.json();
+  assert.equal(skippedOverviewBody.source, "skipped");
+  assert.equal(skippedOverviewBody.metadata.dashboardLiveDefault, false);
 
   assert.equal(overview.status, 200);
   const overviewBody = await overview.json();
   assert.equal(overviewBody.summary.mode, "contractCounts");
   assert.equal(overviewBody.summary.objectCount, 2);
   assert.equal(overviewBody.summary.providerCount, null);
+  assert.equal(overviewBody.metadata.dashboardLiveDefault, false);
+
+  assert.equal(upgradedOverview.status, 200);
+  const upgradedOverviewBody = await upgradedOverview.json();
+  assert.equal(upgradedOverviewBody.summary.objectCount, 2);
+  assert.equal(upgradedOverviewBody.metadata.dashboardLiveDefault, true);
 
   assert.equal(files.status, 200);
   const filesBody = await files.json();
