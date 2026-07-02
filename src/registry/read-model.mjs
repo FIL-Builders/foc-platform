@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { decodeEventLog } from "viem";
+import { decodeEventLog, encodeFunctionData } from "viem";
 
 const artifactUrl = new URL("../../artifacts/contracts/FocPlatformRegistry.json", import.meta.url);
 
@@ -7,6 +7,83 @@ export const registryArtifact = JSON.parse(readFileSync(artifactUrl, "utf8"));
 export const registryAbi = registryArtifact.abi;
 
 const FINALIZATION_STATUS = ["Committed", "Partial", "Failed"];
+const UPLOAD_STATUS = [
+  "None",
+  "Requested",
+  "Uploading",
+  "Committed",
+  "Partial",
+  "Failed",
+  "Cancelled",
+  "Expired",
+  "Deleted",
+];
+const REGISTRY_MAX_LIST_LIMIT = 50n;
+const STORAGE_OBJECT_FIELDS = [
+  "objectId",
+  "accountId",
+  "user",
+  "idempotencyKey",
+  "contentHash",
+  "metadataHash",
+  "pieceCidHash",
+  "size",
+  "requestedCopies",
+  "completedCopies",
+  "withCDN",
+  "maxCost",
+  "reservedCost",
+  "actualCost",
+  "status",
+  "coordinator",
+  "requestExpiresAt",
+  "createdAt",
+  "updatedAt",
+  "receiptHash",
+];
+const ACCOUNT_USAGE_FIELDS = [
+  "activeBytes",
+  "activeObjects",
+  "pendingBytes",
+  "reservedCost",
+  "totalActualCost",
+  "totalUploadedBytes",
+  "totalRequestedUploads",
+  "totalFinalizedUploads",
+  "totalFailedUploads",
+];
+const COPY_RECEIPT_FIELDS = [
+  "providerId",
+  "datasetId",
+  "pieceId",
+  "addPieceTxHash",
+  "retrievalUrlHash",
+  "isNewDataSet",
+];
+const COORDINATOR_POLICY_FIELDS = [
+  "allowed",
+  "maxFinalizeDelay",
+  "sessionKeyExpiresAt",
+  "permissionsHash",
+];
+const DATASET_RECORD_FIELDS = [
+  "accountId",
+  "payer",
+  "providerId",
+  "datasetId",
+  "storageClass",
+  "withCDN",
+  "createdAt",
+  "updatedAt",
+];
+const DATASET_KEY_FIELDS = ["accountId", "providerId", "datasetId"];
+
+export const registryDirectReadDefaults = Object.freeze({
+  sourceOfTruth: "FocPlatformRegistryDirectReads",
+  eventProjectionRole: "auditFallbackOnly",
+  maxPageSize: Number(REGISTRY_MAX_LIST_LIMIT),
+  batchMethod: "readBatch",
+});
 
 export function decodeRegistryLog(log) {
   const decoded = decodeEventLog({
@@ -33,6 +110,96 @@ export function registryReadRequest(address, functionName, args = []) {
     functionName,
     args,
   };
+}
+
+export function registryReadCallData(read) {
+  return encodeFunctionData({
+    abi: read.abi ?? registryAbi,
+    functionName: read.functionName,
+    args: read.args ?? [],
+  });
+}
+
+export function registryMaxListLimitRead(address) {
+  return registryReadRequest(address, "MAX_LIST_LIMIT");
+}
+
+export function registryObjectCountRead(address) {
+  return registryReadRequest(address, "objectCount");
+}
+
+export function registryAccountCountRead(address) {
+  return registryReadRequest(address, "accountCount");
+}
+
+export function registryDatasetRecordCountRead(address) {
+  return registryReadRequest(address, "datasetRecordCount");
+}
+
+export function registryCoordinatorCountRead(address) {
+  return registryReadRequest(address, "coordinatorCount");
+}
+
+export function registryRelayerCountRead(address) {
+  return registryReadRequest(address, "relayerCount");
+}
+
+export function registryStorageObjectIdsPageRead(
+  address,
+  { cursorIdExclusive = 0n, limit = REGISTRY_MAX_LIST_LIMIT, includeTerminal = true } = {},
+) {
+  return registryReadRequest(address, "listStorageObjectIds", [
+    BigInt(cursorIdExclusive),
+    BigInt(limit),
+    Boolean(includeTerminal),
+  ]);
+}
+
+export function registryAccountObjectIdsPageRead(
+  address,
+  accountId,
+  { cursorIdExclusive = 0n, limit = REGISTRY_MAX_LIST_LIMIT, includeTerminal = true } = {},
+) {
+  return registryReadRequest(address, "listAccountObjectIds", [
+    accountId,
+    BigInt(cursorIdExclusive),
+    BigInt(limit),
+    Boolean(includeTerminal),
+  ]);
+}
+
+export function registryAccountIdsPageRead(
+  address,
+  { offset = 0n, limit = REGISTRY_MAX_LIST_LIMIT } = {},
+) {
+  return registryReadRequest(address, "listAccountIds", [BigInt(offset), BigInt(limit)]);
+}
+
+export function registryDatasetKeysPageRead(
+  address,
+  { offset = 0n, limit = REGISTRY_MAX_LIST_LIMIT } = {},
+) {
+  return registryReadRequest(address, "listDatasetKeys", [BigInt(offset), BigInt(limit)]);
+}
+
+export function registryCoordinatorAddressesPageRead(
+  address,
+  { offset = 0n, limit = REGISTRY_MAX_LIST_LIMIT } = {},
+) {
+  return registryReadRequest(address, "listCoordinatorAddresses", [BigInt(offset), BigInt(limit)]);
+}
+
+export function registryRelayerAddressesPageRead(
+  address,
+  { offset = 0n, limit = REGISTRY_MAX_LIST_LIMIT } = {},
+) {
+  return registryReadRequest(address, "listRelayerAddresses", [BigInt(offset), BigInt(limit)]);
+}
+
+export function registryReadBatchRead(address, calls) {
+  return registryReadRequest(address, "readBatch", [
+    Array.from(calls, (call) => (typeof call === "string" ? call : registryReadCallData(call))),
+  ]);
 }
 
 export function registryObjectRead(address, objectId) {
@@ -65,6 +232,110 @@ export function registryDatasetRecordRead(address, accountId, providerId, datase
     BigInt(providerId),
     BigInt(datasetId),
   ]);
+}
+
+export function registryObjectDetailReads(address, objectId) {
+  return {
+    object: registryObjectRead(address, objectId),
+    copyReceipts: registryCopyReceiptsRead(address, objectId),
+    receiptPayer: registryReceiptPayerRead(address, objectId),
+  };
+}
+
+export function registryDatasetDetailRead(address, key) {
+  const { accountId, providerId, datasetId } = normalizeRegistryDatasetKey(key);
+  return registryDatasetRecordRead(address, accountId, providerId, datasetId);
+}
+
+export function registryCoordinatorDetailRead(address, coordinator) {
+  return registryCoordinatorPolicyRead(address, coordinator);
+}
+
+export function registryRelayerDetailRead(address, relayer) {
+  return registryRelayerRead(address, relayer);
+}
+
+export function normalizeRegistryStorageObject(value) {
+  const object = struct(value, STORAGE_OBJECT_FIELDS);
+  return {
+    objectId: decimal(object.objectId ?? 0n),
+    accountId: object.accountId,
+    user: object.user,
+    idempotencyKey: object.idempotencyKey,
+    contentHash: object.contentHash,
+    metadataHash: object.metadataHash,
+    pieceCidHash: object.pieceCidHash,
+    size: decimal(object.size),
+    requestedCopies: number(object.requestedCopies),
+    completedCopies: number(object.completedCopies),
+    withCDN: Boolean(object.withCDN),
+    maxCost: decimal(object.maxCost),
+    reservedCost: decimal(object.reservedCost ?? object.maxCost ?? 0n),
+    actualCost: decimal(object.actualCost),
+    status: uploadStatus(object.status),
+    coordinator: object.coordinator,
+    requestExpiresAt: decimal(object.requestExpiresAt),
+    createdAt: decimal(object.createdAt),
+    updatedAt: decimal(object.updatedAt),
+    receiptHash: object.receiptHash,
+  };
+}
+
+export function normalizeRegistryAccountUsage(value) {
+  const usage = struct(value, ACCOUNT_USAGE_FIELDS);
+  return Object.fromEntries(
+    ACCOUNT_USAGE_FIELDS.map((field) => [field, decimal(usage[field])]),
+  );
+}
+
+export function normalizeRegistryCopyReceipt(value) {
+  const receipt = struct(value, COPY_RECEIPT_FIELDS);
+  return {
+    providerId: decimal(receipt.providerId),
+    datasetId: decimal(receipt.datasetId),
+    pieceId: decimal(receipt.pieceId),
+    addPieceTxHash: receipt.addPieceTxHash,
+    retrievalUrlHash: receipt.retrievalUrlHash,
+    isNewDataSet: Boolean(receipt.isNewDataSet),
+  };
+}
+
+export function normalizeRegistryCoordinatorPolicy(value) {
+  const policy = struct(value, COORDINATOR_POLICY_FIELDS);
+  return {
+    allowed: Boolean(policy.allowed),
+    maxFinalizeDelay: decimal(policy.maxFinalizeDelay),
+    sessionKeyExpiresAt: decimal(policy.sessionKeyExpiresAt),
+    permissionsHash: policy.permissionsHash,
+  };
+}
+
+export function normalizeRegistryDatasetRecord(value) {
+  const dataset = struct(value, DATASET_RECORD_FIELDS);
+  return {
+    accountId: dataset.accountId,
+    payer: dataset.payer,
+    providerId: decimal(dataset.providerId),
+    datasetId: decimal(dataset.datasetId),
+    storageClass: dataset.storageClass,
+    withCDN: Boolean(dataset.withCDN),
+    createdAt: decimal(dataset.createdAt),
+    updatedAt: decimal(dataset.updatedAt),
+  };
+}
+
+export function normalizeRegistryDatasetKey(value) {
+  const key = struct(value, DATASET_KEY_FIELDS);
+  return {
+    accountId: key.accountId,
+    providerId: decimal(key.providerId),
+    datasetId: decimal(key.datasetId),
+  };
+}
+
+export function registryDatasetKeyId(key) {
+  const normalized = normalizeRegistryDatasetKey(key);
+  return `${normalized.accountId}:${normalized.providerId}:${normalized.datasetId}`;
 }
 
 export function createRegistryReadModel() {
@@ -336,6 +607,11 @@ function finalizationStatus(value) {
   return FINALIZATION_STATUS[number(value)] ?? `Unknown(${decimal(value)})`;
 }
 
+function uploadStatus(value) {
+  if (typeof value === "string" && !/^\d+$/.test(value)) return value;
+  return UPLOAD_STATUS[number(value)] ?? `Unknown(${decimal(value)})`;
+}
+
 function eventTimestamp(event) {
   if (event.blockTimestamp === undefined || event.blockTimestamp === null) return undefined;
   return decimal(event.blockTimestamp);
@@ -368,6 +644,7 @@ function number(value) {
 }
 
 function bigint(value) {
+  if (value === undefined || value === null || value === "") return 0n;
   return typeof value === "bigint" ? value : BigInt(value);
 }
 
@@ -422,4 +699,13 @@ function lower(address) {
 
 function requestedBytes(object) {
   return bigint(object.size) * bigint(object.requestedCopies);
+}
+
+function struct(value, fields) {
+  if (!value) return {};
+  if (!Array.isArray(value)) return value;
+
+  return Object.fromEntries(
+    fields.map((field, index) => [field, value[field] ?? value[index]]),
+  );
 }

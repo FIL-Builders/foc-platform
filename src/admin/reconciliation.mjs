@@ -20,7 +20,8 @@ const STORED_STATUSES = new Set(["Committed", "Partial"]);
 const PENDING_STATUSES = new Set(["Requested", "Uploading"]);
 
 export const ADMIN_SOURCE_OF_TRUTH = Object.freeze({
-  platformState: "FocPlatformRegistry contract views and reconstructed registry events",
+  platformState: "FocPlatformRegistry direct contract list/detail/readBatch views",
+  eventProjectionRole: "audit, fixture, history, and fallback reconstruction only",
   focState: "FOC contracts, provider-confirmed transactions, datasets, pieces, and payment rails",
   nonAuthoritative: [
     "coordinator-private state",

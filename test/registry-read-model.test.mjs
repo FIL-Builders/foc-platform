@@ -5,14 +5,39 @@ import { encodeAbiParameters, encodeEventTopics } from "viem";
 import {
   applyRegistryEvents,
   decodeRegistryLog,
+  normalizeRegistryAccountUsage,
+  normalizeRegistryCoordinatorPolicy,
+  normalizeRegistryCopyReceipt,
+  normalizeRegistryDatasetKey,
+  normalizeRegistryDatasetRecord,
+  normalizeRegistryStorageObject,
   registryAbi,
+  registryAccountCountRead,
+  registryAccountIdsPageRead,
+  registryAccountObjectIdsPageRead,
   registryArtifact,
   registryCoordinatorPolicyRead,
+  registryCoordinatorCountRead,
+  registryCoordinatorAddressesPageRead,
   registryCopyReceiptsRead,
+  registryDatasetDetailRead,
   registryDatasetRecordRead,
+  registryDatasetRecordCountRead,
+  registryDatasetKeysPageRead,
+  registryDatasetKeyId,
+  registryDirectReadDefaults,
+  registryMaxListLimitRead,
   registryObjectRead,
+  registryObjectCountRead,
+  registryObjectDetailReads,
   registryReceiptPayerRead,
+  registryReadBatchRead,
+  registryReadCallData,
   registryRelayerRead,
+  registryRelayerCountRead,
+  registryRelayerAddressesPageRead,
+  registryRelayerDetailRead,
+  registryStorageObjectIdsPageRead,
   registryUsageRead,
 } from "../src/registry/read-model.mjs";
 
@@ -109,6 +134,198 @@ test("registry read helpers build viem-compatible contract read requests", () =>
     functionName: "getDatasetRecord",
     args: [ACCOUNT_ID, 111n, 222n],
   });
+});
+
+test("registry direct list helpers build count, cursor, offset, and batch reads", () => {
+  assert.deepEqual(registryDirectReadDefaults, {
+    sourceOfTruth: "FocPlatformRegistryDirectReads",
+    eventProjectionRole: "auditFallbackOnly",
+    maxPageSize: 50,
+    batchMethod: "readBatch",
+  });
+  assert.deepEqual(registryMaxListLimitRead(REGISTRY_ADDRESS), {
+    address: REGISTRY_ADDRESS,
+    abi: registryAbi,
+    functionName: "MAX_LIST_LIMIT",
+    args: [],
+  });
+  assert.equal(registryObjectCountRead(REGISTRY_ADDRESS).functionName, "objectCount");
+  assert.equal(registryAccountCountRead(REGISTRY_ADDRESS).functionName, "accountCount");
+  assert.equal(
+    registryDatasetRecordCountRead(REGISTRY_ADDRESS).functionName,
+    "datasetRecordCount",
+  );
+  assert.equal(registryCoordinatorCountRead(REGISTRY_ADDRESS).functionName, "coordinatorCount");
+  assert.equal(registryRelayerCountRead(REGISTRY_ADDRESS).functionName, "relayerCount");
+
+  assert.deepEqual(
+    registryStorageObjectIdsPageRead(REGISTRY_ADDRESS, {
+      cursorIdExclusive: 10n,
+      limit: 25n,
+      includeTerminal: false,
+    }),
+    {
+      address: REGISTRY_ADDRESS,
+      abi: registryAbi,
+      functionName: "listStorageObjectIds",
+      args: [10n, 25n, false],
+    },
+  );
+  assert.deepEqual(
+    registryAccountObjectIdsPageRead(REGISTRY_ADDRESS, ACCOUNT_ID, {
+      cursorIdExclusive: 4n,
+      limit: 5n,
+      includeTerminal: true,
+    }),
+    {
+      address: REGISTRY_ADDRESS,
+      abi: registryAbi,
+      functionName: "listAccountObjectIds",
+      args: [ACCOUNT_ID, 4n, 5n, true],
+    },
+  );
+  assert.deepEqual(registryAccountIdsPageRead(REGISTRY_ADDRESS, { offset: 2n, limit: 3n }), {
+    address: REGISTRY_ADDRESS,
+    abi: registryAbi,
+    functionName: "listAccountIds",
+    args: [2n, 3n],
+  });
+  assert.equal(
+    registryDatasetKeysPageRead(REGISTRY_ADDRESS, { offset: 0n, limit: 0n }).functionName,
+    "listDatasetKeys",
+  );
+  assert.equal(
+    registryCoordinatorAddressesPageRead(REGISTRY_ADDRESS).functionName,
+    "listCoordinatorAddresses",
+  );
+  assert.equal(
+    registryRelayerAddressesPageRead(REGISTRY_ADDRESS).functionName,
+    "listRelayerAddresses",
+  );
+
+  const detailReads = registryObjectDetailReads(REGISTRY_ADDRESS, 8n);
+  assert.deepEqual(Object.keys(detailReads), ["object", "copyReceipts", "receiptPayer"]);
+  assert.equal(detailReads.object.functionName, "getStorageObject");
+  assert.equal(detailReads.copyReceipts.functionName, "getCopyReceipts");
+  assert.equal(detailReads.receiptPayer.functionName, "receiptPayer");
+  assert.deepEqual(
+    registryDatasetDetailRead(REGISTRY_ADDRESS, {
+      accountId: ACCOUNT_ID,
+      providerId: 111n,
+      datasetId: 222n,
+    }).args,
+    [ACCOUNT_ID, 111n, 222n],
+  );
+  assert.equal(registryRelayerDetailRead(REGISTRY_ADDRESS, USER).functionName, "isRelayer");
+
+  const objectCallData = registryReadCallData(detailReads.object);
+  assert.equal(typeof objectCallData, "string");
+  assert.match(objectCallData, /^0x[0-9a-f]+$/);
+  assert.deepEqual(registryReadBatchRead(REGISTRY_ADDRESS, [detailReads.object]), {
+    address: REGISTRY_ADDRESS,
+    abi: registryAbi,
+    functionName: "readBatch",
+    args: [[objectCallData]],
+  });
+});
+
+test("registry direct read normalizers produce admin-model compatible values", () => {
+  const object = normalizeRegistryStorageObject([
+    8n,
+    ACCOUNT_ID,
+    USER,
+    IDEMPOTENCY_KEY,
+    CONTENT_HASH,
+    METADATA_HASH,
+    PIECE_CID_HASH,
+    1024n,
+    2,
+    1,
+    true,
+    10n,
+    4n,
+    7n,
+    3,
+    COORDINATOR,
+    5000n,
+    100n,
+    120n,
+    RECEIPT_HASH,
+  ]);
+  assert.deepEqual(object, {
+    objectId: "8",
+    accountId: ACCOUNT_ID,
+    user: USER,
+    idempotencyKey: IDEMPOTENCY_KEY,
+    contentHash: CONTENT_HASH,
+    metadataHash: METADATA_HASH,
+    pieceCidHash: PIECE_CID_HASH,
+    size: "1024",
+    requestedCopies: 2,
+    completedCopies: 1,
+    withCDN: true,
+    maxCost: "10",
+    reservedCost: "4",
+    actualCost: "7",
+    status: "Committed",
+    coordinator: COORDINATOR,
+    requestExpiresAt: "5000",
+    createdAt: "100",
+    updatedAt: "120",
+    receiptHash: RECEIPT_HASH,
+  });
+  assert.deepEqual(normalizeRegistryAccountUsage([1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n, 9n]), {
+    activeBytes: "1",
+    activeObjects: "2",
+    pendingBytes: "3",
+    reservedCost: "4",
+    totalActualCost: "5",
+    totalUploadedBytes: "6",
+    totalRequestedUploads: "7",
+    totalFinalizedUploads: "8",
+    totalFailedUploads: "9",
+  });
+  assert.deepEqual(normalizeRegistryCopyReceipt([111n, 222n, 333n, ADD_PIECE_TX_HASH, RETRIEVAL_URL_HASH, true]), {
+    providerId: "111",
+    datasetId: "222",
+    pieceId: "333",
+    addPieceTxHash: ADD_PIECE_TX_HASH,
+    retrievalUrlHash: RETRIEVAL_URL_HASH,
+    isNewDataSet: true,
+  });
+  assert.deepEqual(normalizeRegistryCoordinatorPolicy([true, 3600n, 9000n, hex32("0b")]), {
+    allowed: true,
+    maxFinalizeDelay: "3600",
+    sessionKeyExpiresAt: "9000",
+    permissionsHash: hex32("0b"),
+  });
+  const datasetRecord = normalizeRegistryDatasetRecord([
+    ACCOUNT_ID,
+    PAYER,
+    111n,
+    222n,
+    STORAGE_CLASS_HASH,
+    true,
+    100n,
+    120n,
+  ]);
+  assert.deepEqual(datasetRecord, {
+    accountId: ACCOUNT_ID,
+    payer: PAYER,
+    providerId: "111",
+    datasetId: "222",
+    storageClass: STORAGE_CLASS_HASH,
+    withCDN: true,
+    createdAt: "100",
+    updatedAt: "120",
+  });
+  const datasetKey = normalizeRegistryDatasetKey([ACCOUNT_ID, 111n, 222n]);
+  assert.deepEqual(datasetKey, {
+    accountId: ACCOUNT_ID,
+    providerId: "111",
+    datasetId: "222",
+  });
+  assert.equal(registryDatasetKeyId(datasetKey), `${ACCOUNT_ID}:111:222`);
 });
 
 test("applyRegistryEvents reconstructs committed object, usage, copy, and payer state", () => {

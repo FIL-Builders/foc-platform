@@ -84,20 +84,174 @@
   "registry": {
     "name": "FocPlatformRegistry",
     "artifactPath": "artifacts/contracts/FocPlatformRegistry.json",
+    "readModelPath": "src/registry/read-model.mjs",
+    "authoritativeState": "FocPlatformRegistryDirectReads",
+    "directReads": {
+      "chain": "filecoin_calibration",
+      "addressSource": {
+        "env": "FOC_PLATFORM_REGISTRY_ADDRESS",
+        "deploymentMetadata": {
+          "path": "artifacts/calibration/demo-evidence.json",
+          "jsonPointer": "/registry/address"
+        }
+      },
+      "artifactPath": "artifacts/contracts/FocPlatformRegistry.json",
+      "abiSource": "registryArtifact.abi",
+      "readModelPath": "src/registry/read-model.mjs",
+      "maxPageSize": 50,
+      "sourceOfTruth": "FocPlatformRegistryDirectReads",
+      "eventProjectionRole": "auditFallbackOnly",
+      "batch": {
+        "method": "readBatch",
+        "maxCalls": 50,
+        "fallback": "viemMulticall"
+      },
+      "countMethods": {
+        "objects": "objectCount",
+        "accounts": "accountCount",
+        "datasets": "datasetRecordCount",
+        "coordinators": "coordinatorCount",
+        "relayers": "relayerCount"
+      },
+      "listMethods": {
+        "objects": {
+          "method": "listStorageObjectIds",
+          "pagination": "cursor",
+          "cursor": "cursorIdExclusive",
+          "limit": "limit",
+          "includeTerminal": "includeTerminal"
+        },
+        "accountObjects": {
+          "method": "listAccountObjectIds",
+          "pagination": "cursor",
+          "partitionKey": "accountId",
+          "cursor": "cursorIdExclusive",
+          "limit": "limit",
+          "includeTerminal": "includeTerminal"
+        },
+        "accounts": {
+          "method": "listAccountIds",
+          "pagination": "offset",
+          "offset": "offset",
+          "limit": "limit"
+        },
+        "datasetKeys": {
+          "method": "listDatasetKeys",
+          "pagination": "offset",
+          "offset": "offset",
+          "limit": "limit",
+          "tupleShape": [
+            "accountId",
+            "providerId",
+            "datasetId"
+          ]
+        },
+        "coordinators": {
+          "method": "listCoordinatorAddresses",
+          "pagination": "offset",
+          "offset": "offset",
+          "limit": "limit"
+        },
+        "relayers": {
+          "method": "listRelayerAddresses",
+          "pagination": "offset",
+          "offset": "offset",
+          "limit": "limit"
+        }
+      },
+      "detailMethods": {
+        "storageObject": {
+          "method": "getStorageObject",
+          "args": [
+            "objectId"
+          ]
+        },
+        "usage": {
+          "method": "getAccountUsage",
+          "args": [
+            "accountId"
+          ]
+        },
+        "copyReceipts": {
+          "method": "getCopyReceipts",
+          "args": [
+            "objectId"
+          ]
+        },
+        "receiptPayer": {
+          "method": "receiptPayer",
+          "args": [
+            "objectId"
+          ]
+        },
+        "datasetRecord": {
+          "method": "getDatasetRecord",
+          "args": [
+            "accountId",
+            "providerId",
+            "datasetId"
+          ],
+          "keyTuple": [
+            "accountId",
+            "providerId",
+            "datasetId"
+          ]
+        },
+        "coordinatorPolicy": {
+          "method": "coordinatorPolicies",
+          "args": [
+            "coordinator"
+          ],
+          "fields": [
+            "allowed",
+            "maxFinalizeDelay",
+            "sessionKeyExpiresAt",
+            "permissionsHash"
+          ]
+        },
+        "relayerStatus": {
+          "method": "isRelayer",
+          "args": [
+            "relayer"
+          ]
+        }
+      },
+      "datasetKeyTuple": [
+        "accountId",
+        "providerId",
+        "datasetId"
+      ]
+    },
     "sourceName": "contracts/FocPlatformRegistry.sol",
     "bytecodeSha256": "0x70a84ae9a3ec837fa12793aca9019cc989b3fc097416519b01760ff56dcc22fa",
     "deployedBytecodeSha256": "0x2c49443e7a9ebf3337453240e706df249d29f4f217ec948d6c10e9502a199d1f",
     "requiredFunctions": [
+      "MAX_LIST_LIMIT",
       "requestUpload",
       "startUpload",
       "finalizeUpload",
       "failUpload",
       "cancelUpload",
       "expireUpload",
+      "objectCount",
+      "accountCount",
+      "datasetRecordCount",
+      "coordinatorCount",
+      "relayerCount",
+      "listStorageObjectIds",
+      "listAccountIds",
+      "listAccountObjectIds",
+      "listDatasetKeys",
+      "listCoordinatorAddresses",
+      "listRelayerAddresses",
+      "readBatch",
       "getStorageObject",
       "getAccountUsage",
       "getCopyReceipts",
-      "receiptPayer"
+      "receiptPayer",
+      "getDatasetRecord",
+      "coordinatorPolicies",
+      "isRelayer"
     ]
   },
   "platformApi": {
@@ -216,5 +370,5 @@
     "No generated artifact may include coordinator private keys or platform root secrets.",
     "Real Filecoin Calibration and Synapse execution remain gated by Phase 0 credentials/evidence."
   ],
-  "configSha256": "0x148a88c6a38b26c8dfd138a31d2178d2611ce656ac452ded101d58878cba006a"
+  "configSha256": "0xdff3ce312c76c75750978a174e3cf7570f9eaa302e160caa78f46a038330dc07"
 }

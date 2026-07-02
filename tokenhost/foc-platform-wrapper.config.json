@@ -62,7 +62,110 @@
     "name": "FocPlatformRegistry",
     "artifactPath": "artifacts/contracts/FocPlatformRegistry.json",
     "readModelPath": "src/registry/read-model.mjs",
-    "authoritativeState": "contractViewsAndEvents"
+    "authoritativeState": "FocPlatformRegistryDirectReads",
+    "directReads": {
+      "chain": "filecoin_calibration",
+      "addressSource": {
+        "env": "FOC_PLATFORM_REGISTRY_ADDRESS",
+        "deploymentMetadata": {
+          "path": "artifacts/calibration/demo-evidence.json",
+          "jsonPointer": "/registry/address"
+        }
+      },
+      "artifactPath": "artifacts/contracts/FocPlatformRegistry.json",
+      "abiSource": "registryArtifact.abi",
+      "readModelPath": "src/registry/read-model.mjs",
+      "maxPageSize": 50,
+      "sourceOfTruth": "FocPlatformRegistryDirectReads",
+      "eventProjectionRole": "auditFallbackOnly",
+      "batch": {
+        "method": "readBatch",
+        "maxCalls": 50,
+        "fallback": "viemMulticall"
+      },
+      "countMethods": {
+        "objects": "objectCount",
+        "accounts": "accountCount",
+        "datasets": "datasetRecordCount",
+        "coordinators": "coordinatorCount",
+        "relayers": "relayerCount"
+      },
+      "listMethods": {
+        "objects": {
+          "method": "listStorageObjectIds",
+          "pagination": "cursor",
+          "cursor": "cursorIdExclusive",
+          "limit": "limit",
+          "includeTerminal": "includeTerminal"
+        },
+        "accountObjects": {
+          "method": "listAccountObjectIds",
+          "pagination": "cursor",
+          "partitionKey": "accountId",
+          "cursor": "cursorIdExclusive",
+          "limit": "limit",
+          "includeTerminal": "includeTerminal"
+        },
+        "accounts": {
+          "method": "listAccountIds",
+          "pagination": "offset",
+          "offset": "offset",
+          "limit": "limit"
+        },
+        "datasetKeys": {
+          "method": "listDatasetKeys",
+          "pagination": "offset",
+          "offset": "offset",
+          "limit": "limit",
+          "tupleShape": ["accountId", "providerId", "datasetId"]
+        },
+        "coordinators": {
+          "method": "listCoordinatorAddresses",
+          "pagination": "offset",
+          "offset": "offset",
+          "limit": "limit"
+        },
+        "relayers": {
+          "method": "listRelayerAddresses",
+          "pagination": "offset",
+          "offset": "offset",
+          "limit": "limit"
+        }
+      },
+      "detailMethods": {
+        "storageObject": {
+          "method": "getStorageObject",
+          "args": ["objectId"]
+        },
+        "usage": {
+          "method": "getAccountUsage",
+          "args": ["accountId"]
+        },
+        "copyReceipts": {
+          "method": "getCopyReceipts",
+          "args": ["objectId"]
+        },
+        "receiptPayer": {
+          "method": "receiptPayer",
+          "args": ["objectId"]
+        },
+        "datasetRecord": {
+          "method": "getDatasetRecord",
+          "args": ["accountId", "providerId", "datasetId"],
+          "keyTuple": ["accountId", "providerId", "datasetId"]
+        },
+        "coordinatorPolicy": {
+          "method": "coordinatorPolicies",
+          "args": ["coordinator"],
+          "fields": ["allowed", "maxFinalizeDelay", "sessionKeyExpiresAt", "permissionsHash"]
+        },
+        "relayerStatus": {
+          "method": "isRelayer",
+          "args": ["relayer"]
+        }
+      },
+      "datasetKeyTuple": ["accountId", "providerId", "datasetId"]
+    }
   },
   "platformApi": {
     "sourcePath": "src/api/platform-api.mjs",
