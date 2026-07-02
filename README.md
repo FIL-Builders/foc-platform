@@ -37,7 +37,29 @@ workspace.
 
 See [`spec.md`](./spec.md).
 
-The design is not production-ready, but it now selects a v1 implementation path to validate: platform EOA/KMS payer, FOC session-key coordinator, hosted coordination, onchain request/object/usage/receipt state, and a Token Host Builder-first scaffold for the generated app, admin/read surfaces, upload adapters, manifests, and sponsored transaction wiring. The workspace includes a local registry artifact/read model, a dev-only upload spine test that exercises request, start, deterministic mocked receipt finalization, object reads, usage reads, and log projection, plus read-only admin/reconciliation projections for object, usage, dataset, provider, coordinator, and mismatch views. The next admin/dashboard buildout targets direct onchain registry pagination: list/count views enumerate objects, accounts, coordinators, relayers, and dataset keys, while detail views fetch the current contract state. Event projections remain audit/fixture/fallback inputs rather than the current-state dashboard source of truth. A partial Phase 0 Calibration run has deployed and verified the registry bytecode on chain `314159`; see [`docs/phase0-calibration-report.md`](./docs/phase0-calibration-report.md). The full FOC/Synapse/session-key compatibility matrix remains open, so future payment and coordinator modes remain compatibility-gated by Phase 0 evidence. The current security and operations boundary is captured in [`docs/production-hardening-runbook.md`](./docs/production-hardening-runbook.md).
+The design is not production-ready, but it now selects a v1 implementation path
+to validate: platform EOA/KMS payer, FOC session-key coordinator, hosted
+coordination, onchain request/object/usage/receipt state, and a Token Host
+Builder-first scaffold for the generated app, admin/read surfaces, upload
+adapters, manifests, and sponsored transaction wiring. The workspace includes a
+local registry artifact/read model, a dev-only upload spine test that exercises
+request, start, deterministic mocked receipt finalization, object reads, usage
+reads, and log projection, plus read-only admin/reconciliation projections for
+object, usage, dataset, provider, coordinator, and mismatch views. The current
+admin/dashboard buildout uses direct onchain registry pagination: list/count
+views enumerate objects, accounts, coordinators, relayers, and dataset keys,
+while detail views fetch the current contract state. Event projections remain
+audit/fixture/fallback inputs rather than the current-state dashboard source of
+truth. A historical Phase 0 Calibration run deployed and verified registry
+bytecode on chain `314159`; see
+[`docs/phase0-calibration-report.md`](./docs/phase0-calibration-report.md).
+The current Worker evidence additionally publishes a committed object and
+direct dashboard read proof; see
+[`docs/calibration-worker-demo.md`](./docs/calibration-worker-demo.md). The
+full FOC/Synapse/session-key compatibility matrix remains open, so future
+payment and coordinator modes remain compatibility-gated by Phase 0 evidence.
+The current security and operations boundary is captured in
+[`docs/production-hardening-runbook.md`](./docs/production-hardening-runbook.md).
 
 ## Related projects
 
@@ -89,13 +111,13 @@ the dashboard; `/api/admin/overview`, `/api/admin/files`,
 `/api/admin/reconciliation` expose JSON rows backed by direct registry
 count/list/detail reads. Overview uses bounded contract count reads; table
 routes expose page metadata with `cursor` or `offset`, and filters are
-page-scoped to keep Worker requests bounded. The committed demo config still points at live Calibration
-evidence for registry object `1`, provider/dataset/piece `4`/`12524`/`34`, and
-a committed registry finalization; issue #33 owns publishing updated public
-evidence for the direct pagination ABI. Until that registry/runtime evidence
-matches the current artifact hash, the dashboard defaults to skipped read-only
-API responses instead of live dashboard reads; use `?live=true` only against an
-upgraded pagination-capable registry. The deployed demo is available at
+page-scoped to keep Worker requests bounded. The committed demo config points
+at live Calibration evidence for registry object `1`,
+provider/dataset/piece `4`/`12524`/`34`, a committed registry finalization, and
+direct pagination-capable registry reads whose runtime hash matches the current
+artifact. Dashboard APIs now default to live direct reads; append `?live=false`
+for route smoke checks that should not call public RPC. The deployed demo is
+available at
 `https://foc-platform-calibration-demo.snissn.workers.dev`. Run
 `pnpm worker:dev` for a local Worker and `pnpm worker:dry-run` to validate the
 deploy bundle. The Worker must not receive private keys or session keys;

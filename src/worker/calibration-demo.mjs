@@ -13,11 +13,12 @@ import {
   registryRelayerCountRead,
 } from "../registry/read-model.mjs";
 
-const DEFAULT_REGISTRY_ADDRESS = "0x7771d916a9d742B1D60597a332C7ABBd5796609c";
+const DEFAULT_REGISTRY_ADDRESS = "0x8F6563Bb9E53aeDfE9d87d4C1E162f0371649c18";
 const DEFAULT_REGISTRY_DEPLOY_TX =
-  "0xb6a4469ae4bff657326d25dd9989ebae54f03467c8ddee19001b1c114fe70552";
+  "0xae42c13c50c1b268a1d38389e27d8fa776264b405e28a1cf11a974dd4b178eae";
+const DEFAULT_REGISTRY_DEPLOY_BLOCK = "3854411";
 const DEFAULT_REGISTRY_RUNTIME_SHA256 =
-  "0xed478a27e255a1b27989ffa4f2fcbf38f1a9ec61a84c8d3e20aceb4e26f72040";
+  "0x2c49443e7a9ebf3337453240e706df249d29f4f217ec948d6c10e9502a199d1f";
 const DEFAULT_RPC_URL = "https://api.calibration.node.glif.io/rpc/v1";
 const DEFAULT_DASHBOARD_PAGE_LIMIT = 20;
 const PAGE_SCOPED_RECONCILIATION_OMITTED_FAMILIES = Object.freeze([
@@ -292,7 +293,17 @@ export async function handleCalibrationDemoRequest(request, env = {}, options = 
 }
 
 export function buildDemoEvidence(env = {}) {
-  const registryAddress = optionalString(env.FOC_PLATFORM_REGISTRY_ADDRESS) ?? DEFAULT_REGISTRY_ADDRESS;
+  const registryAddressOverride = optionalString(env.FOC_PLATFORM_REGISTRY_ADDRESS);
+  const registryAddress = registryAddressOverride ?? DEFAULT_REGISTRY_ADDRESS;
+  const registryDeployTxHash =
+    optionalString(env.FOC_PLATFORM_REGISTRY_DEPLOY_TX) ??
+    defaultRegistryMetadataValue(registryAddress, DEFAULT_REGISTRY_DEPLOY_TX);
+  const registryDeployBlock =
+    optionalString(env.FOC_PLATFORM_REGISTRY_DEPLOY_BLOCK) ??
+    defaultRegistryMetadataValue(registryAddress, DEFAULT_REGISTRY_DEPLOY_BLOCK);
+  const registryRuntimeSha256 =
+    optionalString(env.FOC_PLATFORM_REGISTRY_RUNTIME_SHA256) ??
+    defaultRegistryMetadataValue(registryAddress, DEFAULT_REGISTRY_RUNTIME_SHA256);
   const objectId = optionalString(env.FOC_PLATFORM_DEMO_OBJECT_ID);
   const accountId = normalizeBytes32(optionalString(env.FOC_PLATFORM_DEMO_ACCOUNT_ID));
   const providerId = optionalString(env.FOC_PLATFORM_DEMO_PROVIDER_ID);
@@ -302,16 +313,14 @@ export function buildDemoEvidence(env = {}) {
   return {
     schemaVersion: 1,
     generatedAt: optionalString(env.FOC_PLATFORM_DEMO_GENERATED_AT) ?? new Date(0).toISOString(),
-    mode: optionalString(env.FOC_PLATFORM_DEMO_MODE) ?? "partial_phase0_registry_only",
+    mode: optionalString(env.FOC_PLATFORM_DEMO_MODE) ?? "calibration_live_evidence",
     network: optionalString(env.FOC_PLATFORM_DEMO_NETWORK) ?? "filecoin_calibration",
     chainId: parsePositiveInteger(env.FOC_PLATFORM_DEMO_CHAIN_ID, 314159),
     registry: {
       address: isAddress(registryAddress) ? getAddress(registryAddress) : registryAddress,
-      deployTxHash: optionalString(env.FOC_PLATFORM_REGISTRY_DEPLOY_TX) ?? DEFAULT_REGISTRY_DEPLOY_TX,
-      deployBlock: optionalString(env.FOC_PLATFORM_REGISTRY_DEPLOY_BLOCK) ?? "3852147",
-      runtimeSha256:
-        optionalString(env.FOC_PLATFORM_REGISTRY_RUNTIME_SHA256) ??
-        DEFAULT_REGISTRY_RUNTIME_SHA256,
+      deployTxHash: registryDeployTxHash,
+      deployBlock: registryDeployBlock,
+      runtimeSha256: registryRuntimeSha256,
     },
     demo: {
       status:
@@ -693,6 +702,14 @@ function dashboardDirectReadAbiMatches(evidence) {
 
 function normalizeHash(value) {
   return optionalString(value)?.toLowerCase().replace(/^0x/, "") ?? "";
+}
+
+function sameEvmAddress(left, right) {
+  return isAddress(left) && isAddress(right) && getAddress(left) === getAddress(right);
+}
+
+function defaultRegistryMetadataValue(registryAddress, value) {
+  return sameEvmAddress(registryAddress, DEFAULT_REGISTRY_ADDRESS) ? value : undefined;
 }
 
 function dashboardMetadata(evidence, env = {}) {

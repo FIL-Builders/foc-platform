@@ -14,10 +14,32 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { filecoinCalibration } from "viem/chains";
 
-import { registryAbi } from "../src/registry/read-model.mjs";
+import {
+  normalizeRegistryCoordinatorPolicy,
+  normalizeRegistryDatasetKey,
+  registryAbi,
+  registryAccountCountRead,
+  registryAccountIdsPageRead,
+  registryAccountObjectIdsPageRead,
+  registryArtifact,
+  registryCoordinatorAddressesPageRead,
+  registryCoordinatorCountRead,
+  registryDatasetKeysPageRead,
+  registryDatasetRecordCountRead,
+  registryObjectCountRead,
+  registryReadBatchRead,
+  registryRelayerAddressesPageRead,
+  registryRelayerCountRead,
+  registryRelayerRead,
+  registryStorageObjectIdsPageRead,
+} from "../src/registry/read-model.mjs";
 
 const DEFAULT_RPC_URL = "https://api.calibration.node.glif.io/rpc/v1";
-const DEFAULT_REGISTRY_ADDRESS = "0x7771d916a9d742B1D60597a332C7ABBd5796609c";
+const DEFAULT_REGISTRY_ADDRESS = "0x8F6563Bb9E53aeDfE9d87d4C1E162f0371649c18";
+const DEFAULT_REGISTRY_DEPLOY_TX =
+  "0xae42c13c50c1b268a1d38389e27d8fa776264b405e28a1cf11a974dd4b178eae";
+const DEFAULT_REGISTRY_DEPLOY_BLOCK = "3854411";
+const DEFAULT_REGISTRY_RUNTIME_SHA256 = registryArtifact.deployedBytecodeSha256;
 const DEFAULT_EVIDENCE_PATH = "artifacts/calibration/demo-evidence.json";
 const DEMO_NETWORK = "filecoin_calibration";
 const DEMO_CHAIN_ID = 314159;
@@ -89,8 +111,12 @@ Required environment:
 
 Common optional environment:
   FILECOIN_CALIBRATION_RPC_URL             defaults to public GLIF Calibration RPC
-  FOC_PLATFORM_REGISTRY_ADDRESS            defaults to committed Phase 0 registry
+  FOC_PLATFORM_REGISTRY_ADDRESS            defaults to latest committed demo registry
+  FOC_PLATFORM_REGISTRY_DEPLOY_TX          defaults for the committed registry; required for custom registries
+  FOC_PLATFORM_REGISTRY_DEPLOY_BLOCK       defaults for the committed registry; required for custom registries
+  FOC_PLATFORM_REGISTRY_RUNTIME_SHA256     defaults for the committed registry; required for custom registries
   FOC_PLATFORM_DEMO_PAYLOAD_PATH           defaults to /tmp/foc-platform-calibration-demo.bin
+  FOC_PLATFORM_DEMO_RELAYER_ADDRESS        defaults to signer address
   FOC_PLATFORM_DEMO_PROVIDER_ID            defaults to 4
   FOC_PLATFORM_DEMO_DATASET_ID             defaults to 12524
   FOC_PLATFORM_DEMO_PIECE_ID               defaults to 34
@@ -162,6 +188,17 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
         ],
       });
     }
+  }
+
+  const relayerAllowed = await readRelayerAllowed({ publicClient, config });
+  if (!relayerAllowed) {
+    txHashes.setRelayer = await sendAndWait({
+      publicClient,
+      walletClient,
+      config,
+      functionName: "setRelayer",
+      args: [config.relayerAddress, true],
+    });
   }
 
   if (objectId === 0n) {
@@ -261,6 +298,11 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
       args: [config.accountId, BigInt(config.providerId), BigInt(config.datasetId)],
     }),
   ]);
+  const dashboardEvidence = await readDashboardEvidence({
+    publicClient,
+    config,
+    objectId,
+  });
 
   if (write) {
     validateCalibrationEvidenceInputs({
@@ -296,6 +338,7 @@ export async function runCalibrationRegistryDemo({ env = process.env, write = fa
     copyReceipts,
     receiptPayer,
     dataset,
+    dashboardEvidence,
   });
 
   if (write) {
@@ -322,6 +365,13 @@ async function loadConfig(env) {
   const registryAddress = normalizeAddress(
     optionalEnvDefault(env, "FOC_PLATFORM_REGISTRY_ADDRESS", DEFAULT_REGISTRY_ADDRESS),
     "FOC_PLATFORM_REGISTRY_ADDRESS",
+  );
+  const registryDeployTxHash = resolveRegistryDeployTxHash(env, registryAddress);
+  const registryDeployBlock = resolveRegistryDeployBlock(env, registryAddress);
+  const registryRuntimeSha256 = resolveRegistryRuntimeSha256(env, registryAddress);
+  const relayerAddress = normalizeAddress(
+    optionalEnvDefault(env, "FOC_PLATFORM_DEMO_RELAYER_ADDRESS", account.address),
+    "FOC_PLATFORM_DEMO_RELAYER_ADDRESS",
   );
   const payloadPath = optionalEnvDefault(
     env,
@@ -384,6 +434,10 @@ async function loadConfig(env) {
   return {
     account,
     registryAddress,
+    registryDeployTxHash,
+    registryDeployBlock,
+    registryRuntimeSha256,
+    relayerAddress,
     rpcUrl: optionalEnvDefault(env, "FILECOIN_CALIBRATION_RPC_URL", DEFAULT_RPC_URL),
     evidencePath: optionalEnvDefault(env, "FOC_PLATFORM_DEMO_EVIDENCE_PATH", DEFAULT_EVIDENCE_PATH),
     gas: BigInt(optionalEnvDefault(env, "FOC_PLATFORM_DEMO_GAS_LIMIT", DEFAULT_GAS_LIMIT.toString())),
@@ -454,6 +508,43 @@ export function normalizeDemoIds(env = {}) {
     datasetId: optionalEnvDefault(env, "FOC_PLATFORM_DEMO_DATASET_ID", "12524"),
     pieceId: optionalEnvDefault(env, "FOC_PLATFORM_DEMO_PIECE_ID", "34"),
   };
+}
+
+export function resolveRegistryDeployTxHash(env = {}, registryAddress = DEFAULT_REGISTRY_ADDRESS) {
+  return normalizeBytes32(
+    optionalEnvDefault(
+      env,
+      "FOC_PLATFORM_REGISTRY_DEPLOY_TX",
+      defaultRegistryMetadataFallback(registryAddress, DEFAULT_REGISTRY_DEPLOY_TX),
+    ),
+    "FOC_PLATFORM_REGISTRY_DEPLOY_TX",
+  );
+}
+
+export function resolveRegistryDeployBlock(env = {}, registryAddress = DEFAULT_REGISTRY_ADDRESS) {
+  return required(
+    optionalEnvDefault(
+      env,
+      "FOC_PLATFORM_REGISTRY_DEPLOY_BLOCK",
+      defaultRegistryMetadataFallback(registryAddress, DEFAULT_REGISTRY_DEPLOY_BLOCK),
+    ),
+    "FOC_PLATFORM_REGISTRY_DEPLOY_BLOCK",
+  );
+}
+
+export function resolveRegistryRuntimeSha256(env = {}, registryAddress = DEFAULT_REGISTRY_ADDRESS) {
+  return normalizeBytes32(
+    optionalEnvDefault(
+      env,
+      "FOC_PLATFORM_REGISTRY_RUNTIME_SHA256",
+      defaultRegistryMetadataFallback(registryAddress, DEFAULT_REGISTRY_RUNTIME_SHA256),
+    ),
+    "FOC_PLATFORM_REGISTRY_RUNTIME_SHA256",
+  );
+}
+
+function defaultRegistryMetadataFallback(registryAddress, fallback) {
+  return sameEvmAddress(registryAddress, DEFAULT_REGISTRY_ADDRESS) ? fallback : undefined;
 }
 
 export function shouldRefreshDemoCoordinatorPolicy(policy = {}) {
@@ -734,6 +825,15 @@ async function readCoordinatorPolicy({ publicClient, config }) {
   };
 }
 
+async function readRelayerAllowed({ publicClient, config }) {
+  return await publicClient.readContract({
+    address: config.registryAddress,
+    abi: registryAbi,
+    functionName: "isRelayer",
+    args: [config.relayerAddress],
+  });
+}
+
 async function readObjectByIdempotencyKey({ publicClient, config }) {
   return await publicClient.readContract({
     address: config.registryAddress,
@@ -750,6 +850,96 @@ async function readStorageObject({ publicClient, config, objectId }) {
     functionName: "getStorageObject",
     args: [objectId],
   });
+}
+
+async function readDashboardEvidence({ publicClient, config, objectId }) {
+  const address = config.registryAddress;
+  const directReads = [
+    registryObjectCountRead(address),
+    registryAccountCountRead(address),
+    registryDatasetRecordCountRead(address),
+    registryCoordinatorCountRead(address),
+    registryRelayerCountRead(address),
+    registryStorageObjectIdsPageRead(address, {
+      cursorIdExclusive: 0n,
+      limit: 10n,
+      includeTerminal: true,
+    }),
+    registryAccountIdsPageRead(address, { offset: 0n, limit: 10n }),
+    registryAccountObjectIdsPageRead(address, config.accountId, {
+      cursorIdExclusive: 0n,
+      limit: 10n,
+      includeTerminal: true,
+    }),
+    registryDatasetKeysPageRead(address, { offset: 0n, limit: 10n }),
+    registryCoordinatorAddressesPageRead(address, { offset: 0n, limit: 10n }),
+    registryRelayerAddressesPageRead(address, { offset: 0n, limit: 10n }),
+    registryRelayerRead(address, config.relayerAddress),
+    registryReadBatchRead(address, [
+      registryObjectCountRead(address),
+      registryAccountCountRead(address),
+      registryDatasetRecordCountRead(address),
+      registryCoordinatorCountRead(address),
+      registryRelayerCountRead(address),
+    ]),
+  ];
+  const [
+    objectCount,
+    accountCount,
+    datasetRecordCount,
+    coordinatorCount,
+    relayerCount,
+    objectIds,
+    accountIds,
+    accountObjectIds,
+    datasetKeys,
+    coordinatorAddresses,
+    relayerAddresses,
+    relayerAllowed,
+    readBatchResults,
+  ] = await Promise.all(
+    directReads.map((read) =>
+      publicClient.readContract({
+        address: read.address,
+        abi: read.abi,
+        functionName: read.functionName,
+        args: read.args,
+      }),
+    ),
+  );
+  const coordinatorPolicy = await readCoordinatorPolicy({ publicClient, config });
+
+  return {
+    sourceOfTruth: "FocPlatformRegistry direct contract count/list/detail/readBatch views",
+    counts: {
+      objectCount,
+      accountCount,
+      datasetRecordCount,
+      coordinatorCount,
+      relayerCount,
+    },
+    pages: {
+      objectIds,
+      accountIds,
+      accountObjectIds,
+      datasetKeys: Array.from(datasetKeys, normalizeRegistryDatasetKey),
+      coordinatorAddresses,
+      relayerAddresses,
+    },
+    detailReads: {
+      objectId,
+      coordinatorPolicy: normalizeRegistryCoordinatorPolicy(coordinatorPolicy),
+      relayer: {
+        address: config.relayerAddress,
+        allowed: relayerAllowed,
+      },
+    },
+    readBatch: {
+      method: "readBatch",
+      callCount: 5,
+      resultCount: Array.isArray(readBatchResults) ? readBatchResults.length : 0,
+    },
+  };
 }
 
 async function validateCommittedObjectBeforeRegistryMutation({
@@ -812,6 +1002,7 @@ function buildEvidence({
   copyReceipts,
   receiptPayer,
   dataset,
+  dashboardEvidence,
 }) {
   const status = Number(finalObject.status ?? finalObject[14]);
   return {
@@ -822,10 +1013,9 @@ function buildEvidence({
     chainId: DEMO_CHAIN_ID,
     registry: {
       address: config.registryAddress,
-      deployTxHash: "0xb6a4469ae4bff657326d25dd9989ebae54f03467c8ddee19001b1c114fe70552",
-      deployBlock: "3852147",
-      runtimeSha256:
-        "0xed478a27e255a1b27989ffa4f2fcbf38f1a9ec61a84c8d3e20aceb4e26f72040",
+      deployTxHash: config.registryDeployTxHash,
+      deployBlock: config.registryDeployBlock,
+      runtimeSha256: config.registryRuntimeSha256,
       rootAddress: config.account.address,
     },
     demo: {
@@ -849,6 +1039,7 @@ function buildEvidence({
         receiptPayer,
         dataset: jsonSafe(dataset),
       },
+      dashboard: jsonSafe(dashboardEvidence),
     },
     worker: {
       mode: "read_only_public_evidence",
@@ -889,6 +1080,10 @@ function normalizeBytes32(value, label) {
     throw new Error(`${label} must be bytes32 hex`);
   }
   return raw.toLowerCase();
+}
+
+function sameEvmAddress(left, right) {
+  return isAddress(left) && isAddress(right) && getAddress(left) === getAddress(right);
 }
 
 function required(value, label) {
