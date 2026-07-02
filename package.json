@@ -8,6 +8,7 @@
     "build:artifacts": "forge build && node scripts/generate-registry-artifacts.mjs && node scripts/generate-tokenhost-wrapper-artifacts.mjs",
     "build:contracts": "forge build",
     "build:tokenhost": "node scripts/generate-tokenhost-wrapper-artifacts.mjs",
+    "demo:seed-calibration-fixtures": "node scripts/seed-calibration-registry-fixtures.mjs",
     "lint": "node scripts/check-workspace.mjs",
     "ops:smoke": "node scripts/run-ops-smoke.mjs",
     "ops:validate": "node scripts/validate-ops-config.mjs",

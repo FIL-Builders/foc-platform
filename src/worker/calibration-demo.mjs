@@ -20,7 +20,7 @@ const DEFAULT_REGISTRY_DEPLOY_BLOCK = "3854411";
 const DEFAULT_REGISTRY_RUNTIME_SHA256 =
   "0x2c49443e7a9ebf3337453240e706df249d29f4f217ec948d6c10e9502a199d1f";
 const DEFAULT_RPC_URL = "https://api.calibration.node.glif.io/rpc/v1";
-const DEFAULT_DASHBOARD_PAGE_LIMIT = 20;
+const DEFAULT_DASHBOARD_PAGE_LIMIT = 10;
 const PAGE_SCOPED_RECONCILIATION_OMITTED_FAMILIES = Object.freeze([
   "account_usage",
   "dataset_records",
@@ -793,6 +793,7 @@ function fileRowsFromObjectPage(page) {
     activeBytes: row.object.activeBytes,
     reservedCost: row.object.reservedCost,
     actualCost: row.object.actualCost,
+    pieceCidHash: row.object.pieceCidHash,
     receiptHash: row.object.receiptHash,
     receiptPayer: row.receiptPayer,
     coordinator: row.object.coordinator,
@@ -1179,6 +1180,73 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       font: inherit;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
+    .object-link {
+      max-width: 100%;
+      border: 0;
+      background: transparent;
+      color: var(--accent-2);
+      padding: 0;
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 800;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .muted-state {
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .detail-row[hidden] {
+      display: none;
+    }
+    .detail-row td {
+      padding: 0;
+      background: #fbfcfd;
+    }
+    .object-detail {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(140px, 1fr));
+      gap: 10px;
+    }
+    .detail-item {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+    }
+    .detail-item span,
+    .receipt-list span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .detail-item strong,
+    .receipt-item strong {
+      min-width: 0;
+      color: var(--code);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .receipt-list {
+      display: grid;
+      gap: 8px;
+    }
+    .receipt-item {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+    }
     .empty, .error {
       padding: 18px 14px;
       color: var(--muted);
@@ -1249,12 +1317,20 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
         flex: 0 0 auto;
       }
       .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .detail-grid,
+      .receipt-item {
+        grid-template-columns: repeat(2, minmax(140px, 1fr));
+      }
     }
     @media (max-width: 620px) {
       .topbar { align-items: flex-start; }
       .statusline { justify-content: flex-start; }
       .toolbar { grid-template-columns: 1fr; }
       .metrics { grid-template-columns: 1fr; }
+      .detail-grid,
+      .receipt-item {
+        grid-template-columns: 1fr;
+      }
       table { min-width: 760px; }
     }
   </style>
@@ -1280,8 +1356,8 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     </select>
     <input id="provider" name="provider" placeholder="Provider id" autocomplete="off">
     <select id="limit" name="limit" aria-label="Page limit">
-      <option value="10">10 rows</option>
-      <option value="20" selected>20 rows</option>
+      <option value="10" selected>10 rows</option>
+      <option value="20">20 rows</option>
       <option value="50">50 rows</option>
     </select>
   </section>
@@ -1342,6 +1418,60 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     const normalized = text(value);
     const tone = ["Committed", "active", "matched"].includes(normalized) ? "good" : ["Failed", "Expired", "mismatch", "expired", "disabled"].includes(normalized) ? "bad" : "warn";
     return '<span class="pill ' + tone + '">' + esc(normalized) + '</span>';
+  };
+  const zeroHex = (value) => /^0x0+$/i.test(text(value));
+  const pending = (value) => '<span class="muted-state">' + esc(value) + '</span>';
+  const objectButton = (row) => {
+    const id = esc(row.objectId);
+    return '<button type="button" class="object-link" data-object-id="' + id + '" aria-controls="object-detail-' + id + '" aria-expanded="false">' + id + '</button>';
+  };
+  const receiptCell = (row) => {
+    if (!zeroHex(row.receiptHash)) return copy(row.receiptHash);
+    return row.status === "Committed" ? pill("Missing receipt") : pending("Pending receipt");
+  };
+  const coordinatorCell = (row) => {
+    if (!zeroHex(row.coordinator)) return copy(row.coordinator);
+    return row.status === "Requested" ? pending("Not assigned") : pill("Missing coordinator");
+  };
+  const providerCell = (row) => {
+    const providers = row.providerIds || [];
+    if (providers.length > 0) return esc(providers.join(", "));
+    return row.status === "Committed" ? pill("Missing providers") : pending("n/a");
+  };
+  const detailItem = (label, value) =>
+    '<div class="detail-item"><span>' + esc(label) + '</span><strong>' + value + '</strong></div>';
+  const fileDetailMarkup = (row) => {
+    const receipts = row.copyReceipts || [];
+    const receiptRows = receipts.length > 0
+      ? receipts.map((receipt) =>
+        '<div class="receipt-item">' +
+        detailItem("Provider", esc(receipt.providerId)) +
+        detailItem("Dataset", esc(receipt.datasetId)) +
+        detailItem("Piece", esc(receipt.pieceId)) +
+        detailItem("Add piece tx", copy(receipt.addPieceTxHash)) +
+        detailItem("Retrieval URL", copy(receipt.retrievalUrlHash)) +
+        detailItem("New dataset", esc(receipt.isNewDataSet)) +
+        '</div>',
+      ).join("")
+      : pending(row.status === "Committed" ? "No copy receipts returned" : "Copy receipts pending");
+    return '<div class="object-detail">' +
+      '<div class="detail-grid">' +
+      detailItem("Object", copy(row.objectId)) +
+      detailItem("Account", copy(row.accountId)) +
+      detailItem("User", copy(row.user)) +
+      detailItem("Status", pill(row.status)) +
+      detailItem("Size", esc(row.size)) +
+      detailItem("Active bytes", esc(row.activeBytes)) +
+      detailItem("Copies", esc(row.completedCopies) + "/" + esc(row.requestedCopies)) +
+      detailItem("Coordinator", coordinatorCell(row)) +
+      detailItem("Reserved cost", esc(row.reservedCost)) +
+      detailItem("Actual cost", esc(row.actualCost)) +
+      detailItem("Piece CID hash", zeroHex(row.pieceCidHash) ? pending("Pending piece") : copy(row.pieceCidHash)) +
+      detailItem("Receipt hash", receiptCell(row)) +
+      detailItem("Receipt payer", zeroHex(row.receiptPayer) ? pending("Pending payer") : copy(row.receiptPayer)) +
+      '</div>' +
+      '<div class="receipt-list"><span>Copy receipts</span>' + receiptRows + '</div>' +
+      '</div>';
   };
   async function fetchJson(path, view = state.view) {
     const url = new URL(path, location.origin);
@@ -1411,16 +1541,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
   function renderView(body, view = state.view) {
     state.pagination = primaryPagination(body.pagination);
     if (body.source === "skipped") return renderSkippedView(body);
-    if (view === "files") return table(["Object", "Status", "Account", "Size", "Copies", "Providers", "Receipt", "Coordinator"], body.files, (row) => [
-      copy(row.objectId),
-      pill(row.status),
-      copy(row.accountId),
-      esc(row.size),
-      esc(row.completedCopies) + "/" + esc(row.requestedCopies),
-      esc((row.providerIds || []).join(", ") || "n/a"),
-      copy(row.receiptHash),
-      copy(row.coordinator),
-    ]);
+    if (view === "files") return renderFileRows(body.files);
     if (view === "accounts") return table(["Account", "Objects", "Active bytes", "Pending bytes", "Reserved", "Finalized", "Failed"], body.accounts, (row) => [
       copy(row.accountId),
       esc((row.objectIds || []).join(", ") || row.activeObjects),
@@ -1488,6 +1609,31 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       return;
     }
     $("table-wrap").innerHTML = sections.join("");
+  }
+  function renderFileRows(rows) {
+    if (!rows || rows.length === 0) {
+      $("table-wrap").innerHTML = '<div class="empty">No rows on this page</div>';
+      return;
+    }
+    const headers = ["Object", "Status", "Account", "Size", "Copies", "Providers", "Receipt", "Coordinator"];
+    $("table-wrap").innerHTML =
+      '<table><thead><tr>' + headers.map((header) => '<th>' + esc(header) + '</th>').join("") + '</tr></thead><tbody>' +
+      rows.map((row) => {
+        const id = esc(row.objectId);
+        const cells = [
+          objectButton(row),
+          pill(row.status),
+          copy(row.accountId),
+          esc(row.size),
+          esc(row.completedCopies) + "/" + esc(row.requestedCopies),
+          providerCell(row),
+          receiptCell(row),
+          coordinatorCell(row),
+        ];
+        return '<tr data-object-row="' + id + '">' + cells.map((cell) => '<td>' + cell + '</td>').join("") + '</tr>' +
+          '<tr class="detail-row" id="object-detail-' + id + '" hidden><td colspan="8">' + fileDetailMarkup(row) + '</td></tr>';
+      }).join("") +
+      '</tbody></table>';
   }
   function tableMarkup(headers, rows, mapRow) {
     return '<table><thead><tr>' + headers.map((header) => '<th>' + esc(header) + '</th>').join("") + '</tr></thead><tbody>' + rows.map((row, index) => '<tr>' + mapRow(row, index).map((cell) => '<td>' + cell + '</td>').join("") + '</tr>').join("") + '</tbody></table>';
@@ -1582,6 +1728,16 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     const action = event.target.closest("[data-page-action]");
     if (action) {
       applyPageAction(action.dataset.pageAction);
+      return;
+    }
+    const objectToggle = event.target.closest("[data-object-id]");
+    if (objectToggle) {
+      const detail = document.getElementById("object-detail-" + objectToggle.dataset.objectId);
+      if (detail) {
+        const expanded = objectToggle.getAttribute("aria-expanded") === "true";
+        objectToggle.setAttribute("aria-expanded", String(!expanded));
+        detail.hidden = expanded;
+      }
       return;
     }
     const target = event.target.closest("[data-copy]");

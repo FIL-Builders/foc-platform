@@ -112,6 +112,13 @@ test("Worker serves HTML and public evidence endpoints", async () => {
   assert.match(htmlBody, /\/api\/admin\/files/);
   assert.match(htmlBody, /data-page-action="next"/);
   assert.match(htmlBody, /function renderCoordinatorView/);
+  assert.match(htmlBody, /function renderFileRows/);
+  assert.match(htmlBody, /data-object-id/);
+  assert.match(htmlBody, /aria-expanded/);
+  assert.match(htmlBody, /Pending receipt/);
+  assert.match(htmlBody, /Not assigned/);
+  assert.match(htmlBody, /Piece CID hash/);
+  assert.match(htmlBody, /Retrieval URL/);
   assert.match(htmlBody, /function combinedOffsetPagination/);
   assert.match(htmlBody, /function renderSkippedView/);
   assert.match(htmlBody, /body\.source === "skipped"/);
