@@ -1,0 +1,328 @@
+{
+  "generatedAt": "2026-07-02T09:05:15.917Z",
+  "dryRun": false,
+  "network": "filecoin_calibration",
+  "chainId": 314159,
+  "registry": "0x8F6563Bb9E53aeDfE9d87d4C1E162f0371649c18",
+  "signer": "0xF00DCE36817586672B47480FB48C94177A97278B",
+  "seed": "2026-07-demo-grid-durable",
+  "gasLimit": "125000000",
+  "receiptTimeoutMs": 300000,
+  "requestedFixtures": {
+    "objects": 48,
+    "accounts": 24,
+    "committed": 8,
+    "uploading": 8,
+    "requested": 32,
+    "requestExpiresAt": "4102444800"
+  },
+  "counts": {
+    "before": {
+      "objectCount": "83",
+      "accountCount": "49",
+      "datasetRecordCount": "9",
+      "coordinatorCount": "1",
+      "relayerCount": "1"
+    },
+    "after": {
+      "objectCount": "97",
+      "accountCount": "49",
+      "datasetRecordCount": "17",
+      "coordinatorCount": "1",
+      "relayerCount": "1"
+    }
+  },
+  "observedFixtures": {
+    "total": 48,
+    "requested": 32,
+    "uploading": 8,
+    "committed": 8,
+    "other": 0,
+    "missing": [],
+    "requestExpiresAt": "4102444800",
+    "requestExpiresAtMismatches": [],
+    "objectIds": {
+      "first": "50",
+      "last": "97"
+    }
+  },
+  "changes": {
+    "created": [
+      "fixture-35",
+      "fixture-36",
+      "fixture-37",
+      "fixture-38",
+      "fixture-39",
+      "fixture-40",
+      "fixture-41",
+      "fixture-42",
+      "fixture-43",
+      "fixture-44",
+      "fixture-45",
+      "fixture-46",
+      "fixture-47",
+      "fixture-48"
+    ],
+    "advanced": [
+      "fixture-1:uploading",
+      "fixture-2:uploading",
+      "fixture-3:uploading",
+      "fixture-4:uploading",
+      "fixture-5:uploading",
+      "fixture-6:uploading",
+      "fixture-7:uploading",
+      "fixture-8:uploading",
+      "fixture-9:uploading",
+      "fixture-10:uploading",
+      "fixture-11:uploading",
+      "fixture-12:uploading",
+      "fixture-13:uploading",
+      "fixture-14:uploading",
+      "fixture-15:uploading",
+      "fixture-16:uploading",
+      "fixture-1:committed",
+      "fixture-2:committed",
+      "fixture-3:committed",
+      "fixture-4:committed",
+      "fixture-5:committed",
+      "fixture-6:committed",
+      "fixture-7:committed",
+      "fixture-8:committed"
+    ],
+    "skipped": [],
+    "txCount": 46,
+    "txHashes": [
+      {
+        "label": "request fixture-35",
+        "functionName": "requestUpload",
+        "hash": "0x7be9a730b5df042698a6fde478b445dea06b0db9330e9c519df09f2446ecdd9f"
+      },
+      {
+        "label": "request fixture-36",
+        "functionName": "requestUpload",
+        "hash": "0x8e16d08a3d0aae91e38585da0e8bd98decc2a3ae36cce1e4210952caaf50c72d"
+      },
+      {
+        "label": "request fixture-37",
+        "functionName": "requestUpload",
+        "hash": "0xd3c3f00c330a3bc7e4dc5521c4ab13e869a7107f1805894f522fbc7788ba605e"
+      },
+      {
+        "label": "request fixture-38",
+        "functionName": "requestUpload",
+        "hash": "0xa3c7c2c8d726e9ae41786a7fc81e43b51a96660d73d70794a44a64c66bd29afa"
+      },
+      {
+        "label": "request fixture-39",
+        "functionName": "requestUpload",
+        "hash": "0xa34175c80a9d88fc42d82ca0d4def982b0f45cf2fcc7e3c1097a48b65a1b78da"
+      },
+      {
+        "label": "request fixture-40",
+        "functionName": "requestUpload",
+        "hash": "0x1dcf6ad1dad0e5f918fae79dabeea9b9f5ddecca9dead01009340a54b87133f9"
+      },
+      {
+        "label": "request fixture-41",
+        "functionName": "requestUpload",
+        "hash": "0x6bb2d58fc1d3e22c2ba51b477b930f53bbefa20ab598d04b5769eb9d20bfbc54"
+      },
+      {
+        "label": "request fixture-42",
+        "functionName": "requestUpload",
+        "hash": "0xfaee677fd8a294a4fe2134a0c5e5e8019c7bfa95c1a71481af2040b012bead7a"
+      },
+      {
+        "label": "request fixture-43",
+        "functionName": "requestUpload",
+        "hash": "0x0ef2e4346befdf1677a1ba29bb4439e0f77936af4058b76acfcf1066dc8d4d87"
+      },
+      {
+        "label": "request fixture-44",
+        "functionName": "requestUpload",
+        "hash": "0x4109b49df83201558738ba43d28011a72c3007e4cee054586851bd5bbab0f204"
+      },
+      {
+        "label": "request fixture-45",
+        "functionName": "requestUpload",
+        "hash": "0x53a211e66603dd26b21eae87918b2fa7e2227d16087824b9ac6a43e267f7ab8e"
+      },
+      {
+        "label": "request fixture-46",
+        "functionName": "requestUpload",
+        "hash": "0x0da0bfe3c99689baa7b205c6129dc6aa28f1b759aa2fda9ea6ce4943bf8c9ae0"
+      },
+      {
+        "label": "request fixture-47",
+        "functionName": "requestUpload",
+        "hash": "0x274c9ec197a3f1dc2e071bf7a715f475c1f7eab92d7b5c6cd9948563b1b8204c"
+      },
+      {
+        "label": "request fixture-48",
+        "functionName": "requestUpload",
+        "hash": "0xad204cec95f83cfacab2effc30b6a0e81c2427f2b82b3fa2510d07508221a8da"
+      },
+      {
+        "label": "start fixture-1",
+        "functionName": "startUpload",
+        "hash": "0x97b7740075c8926472b82a46aeda347477a184c7af6bc6d97d61d939698a0a4e"
+      },
+      {
+        "label": "start fixture-2",
+        "functionName": "startUpload",
+        "hash": "0xcd50d0f0ae3096c8069a1421ee57b272baf812c639dc87672d7e8b319dd5ebfd"
+      },
+      {
+        "label": "start fixture-3",
+        "functionName": "startUpload",
+        "hash": "0x8c9c83e89544fdd7ce1fc7c239287a4eba139198fce4a071213175f7221afdea"
+      },
+      {
+        "label": "start fixture-4",
+        "functionName": "startUpload",
+        "hash": "0x32ba4107a1ad9019c288cbe1d59fc2e222e07818efec4d4f063518252dbf7063"
+      },
+      {
+        "label": "start fixture-5",
+        "functionName": "startUpload",
+        "hash": "0x02d193a44f9b0b10d617f45d34e47a4cc55986373f35546db5f45509e2d32354"
+      },
+      {
+        "label": "start fixture-6",
+        "functionName": "startUpload",
+        "hash": "0x2c1fe54859839481f6f56fdb0446ef26c85c8162417d70790c43f6aa6bf1fc19"
+      },
+      {
+        "label": "start fixture-7",
+        "functionName": "startUpload",
+        "hash": "0xc78864856ba9ab385a4223f9c69008016bee5df705347c4d500b0517bac0ac0a"
+      },
+      {
+        "label": "start fixture-8",
+        "functionName": "startUpload",
+        "hash": "0xf99b032c4302ae8febe3909f2a25886f0090c878762606d018242b6874dca2af"
+      },
+      {
+        "label": "start fixture-9",
+        "functionName": "startUpload",
+        "hash": "0xd743c3e93e1bd1c1401dd938e27e49ad2f27f92a406728d4f6a59ee9a9045257"
+      },
+      {
+        "label": "start fixture-10",
+        "functionName": "startUpload",
+        "hash": "0x5733d0bfbd02fab2315552582159032dbd43d9c9b540dff62b46ef021e2a44da"
+      },
+      {
+        "label": "start fixture-11",
+        "functionName": "startUpload",
+        "hash": "0x31be64a72fc871bb98ba94b40d89be97be20d66ce9b83e6bcc7d5e779a7905bd"
+      },
+      {
+        "label": "start fixture-12",
+        "functionName": "startUpload",
+        "hash": "0xa4a0b5e35a7cfcaefce9f06ef1838ba56233ce0239118ed0e83c060bd71922cc"
+      },
+      {
+        "label": "start fixture-13",
+        "functionName": "startUpload",
+        "hash": "0x61dc51db02f6b05201b15b4800b9c932be78281134e15ba4cbbdec21a5804591"
+      },
+      {
+        "label": "start fixture-14",
+        "functionName": "startUpload",
+        "hash": "0x6e6b78d54b67f6aea250fe6d26438090959d71652e6c6f258a5ea04eddb985c4"
+      },
+      {
+        "label": "start fixture-15",
+        "functionName": "startUpload",
+        "hash": "0x3bfea9ab66a6791bcc1332ed46366576f35df07251831ced6019a74e30a76def"
+      },
+      {
+        "label": "start fixture-16",
+        "functionName": "startUpload",
+        "hash": "0x5f358af902f8e9c41b35e4cd469d225eb963ea4f0914486d4e98fb289f9b9d8e"
+      },
+      {
+        "label": "record dataset fixture-1",
+        "functionName": "recordDataset",
+        "hash": "0x3aff3243b0655eaf4e3742ae3d4b741e179a1574a6baa78e529f59a79f70b4f5"
+      },
+      {
+        "label": "finalize fixture-1",
+        "functionName": "finalizeUpload",
+        "hash": "0x1c6e5bc01498c93e8ea663ab57d4ebf54b049511bfb1e2a16bfb8d3406b2350a"
+      },
+      {
+        "label": "record dataset fixture-2",
+        "functionName": "recordDataset",
+        "hash": "0x95956b6f0159cda613a63e119932ea779eac0d9717a4e9b52160176fe256cf57"
+      },
+      {
+        "label": "finalize fixture-2",
+        "functionName": "finalizeUpload",
+        "hash": "0x32da45ae9eb6298b06c48283a94b1645731ebae78a468bbdb60ab4906330ef62"
+      },
+      {
+        "label": "record dataset fixture-3",
+        "functionName": "recordDataset",
+        "hash": "0x65a916c83079ed89ba8ce130029ac683988ddfe762fd2d2b033f772faa9a223a"
+      },
+      {
+        "label": "finalize fixture-3",
+        "functionName": "finalizeUpload",
+        "hash": "0x44f296a17bc3ddb2ccdef2c22fe2359b5585f62fa3a94f6245481a0b45865fb6"
+      },
+      {
+        "label": "record dataset fixture-4",
+        "functionName": "recordDataset",
+        "hash": "0xaa9d3fc334169ce09ea4d9d22c4ad4c5d1a19d5bb3ace389e52baeeb85939230"
+      },
+      {
+        "label": "finalize fixture-4",
+        "functionName": "finalizeUpload",
+        "hash": "0xb677765df1d433d7d4b4ead8e3156e69712d445b1b76b270d9c6ee2fae3151b9"
+      },
+      {
+        "label": "record dataset fixture-5",
+        "functionName": "recordDataset",
+        "hash": "0xc01aaaa6e023270e761a2174ecdeaaef6c9d2dbbde560cf1670670cb01919be4"
+      },
+      {
+        "label": "finalize fixture-5",
+        "functionName": "finalizeUpload",
+        "hash": "0xbfcc20c2984385f58a2ffa0289b2b2924795af34f091e7a5aea74b676b5c1310"
+      },
+      {
+        "label": "record dataset fixture-6",
+        "functionName": "recordDataset",
+        "hash": "0xcfcae35f98d0a642fa606a91c0a0c4347500f412bb2f08155edb16eb459ff6da"
+      },
+      {
+        "label": "finalize fixture-6",
+        "functionName": "finalizeUpload",
+        "hash": "0x035d22fb065fd75bc33d9707bd0cbd98ae5eab602d8b0cc8e95b2191dc7083e5"
+      },
+      {
+        "label": "record dataset fixture-7",
+        "functionName": "recordDataset",
+        "hash": "0x6e78f52825936dc4ca97707a6f8ffe60f7b998d741674b9d46d5c915c6996dd8"
+      },
+      {
+        "label": "finalize fixture-7",
+        "functionName": "finalizeUpload",
+        "hash": "0x0584516ddc005c1fe0145a5e24339a22a4337d0d09cea6c9cf232914dbc199e8"
+      },
+      {
+        "label": "record dataset fixture-8",
+        "functionName": "recordDataset",
+        "hash": "0xb3d58a56446fb6a6c5053950cf4642f362bdf5f786f8dbecfcb0341a4095bf80"
+      },
+      {
+        "label": "finalize fixture-8",
+        "functionName": "finalizeUpload",
+        "hash": "0x5e46f407dd2fd6354caa2ac3fb2eeb6ab2a31055af3a0489381eaef181b2f5c3"
+      }
+    ]
+  },
+  "boundary": "Synthetic registry-only fixtures for the public read-only Worker dashboard; these rows do not prove real FOC provider storage."
+}
