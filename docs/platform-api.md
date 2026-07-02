@@ -112,10 +112,9 @@ GET /admin/storage/reconciliation
 ```
 
 Admin responses are built by `src/admin/reconciliation.mjs` from registry
-contract views or reconstructed event state today. The target direct-onchain
-dashboard path must enumerate current rows from `FocPlatformRegistry`
-list/count views and then fetch detail state from point reads or bounded
-`readBatch` calls:
+contract views or reconstructed event state. Current direct-onchain dashboard
+reads enumerate rows from `FocPlatformRegistry` list/count views and then fetch
+detail state from point reads or bounded `readBatch` calls:
 
 - objects: `listStorageObjectIds` / `listAccountObjectIds` plus
   `getStorageObject`;
@@ -126,8 +125,8 @@ list/count views and then fetch detail state from point reads or bounded
 - receipts: `getCopyReceipts` and `receiptPayer`.
 
 Event reconstruction may supplement audit/history screens and local fixtures,
-but it must not replace direct contract reads for current admin rows once the
-pagination ABI is available. Optional FOC evidence can be supplied by a
-wrapper; without it, stored-object reconciliation reports
+but it must not replace direct contract reads for current admin rows. Optional
+FOC evidence can be supplied by a wrapper; without it, stored-object
+reconciliation reports
 `foc_evidence_not_checked` rather than claiming live FOC verification. See
 [`docs/admin-reconciliation.md`](./admin-reconciliation.md).

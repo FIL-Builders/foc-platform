@@ -10,6 +10,8 @@ import {
 import { registryArtifact } from "../src/registry/read-model.mjs";
 
 const REGISTRY = "0x7771d916a9d742B1D60597a332C7ABBd5796609c";
+const STALE_REGISTRY_RUNTIME_SHA256 =
+  "0xed478a27e255a1b27989ffa4f2fcbf38f1a9ec61a84c8d3e20aceb4e26f72040";
 const ACCOUNT_ID = `0x${"12".repeat(32)}`;
 const ACCOUNT_B = `0x${"34".repeat(32)}`;
 const USER = "0x0000000000000000000000000000000000001000";
@@ -28,6 +30,15 @@ test("Worker evidence builder keeps privileged credentials out of public state",
   });
 
   assert.equal(evidence.registry.address, REGISTRY);
+  assert.equal(evidence.registry.deployTxHash, undefined);
+  assert.equal(evidence.registry.deployBlock, undefined);
+  assert.equal(evidence.registry.runtimeSha256, undefined);
+  assert.equal(
+    buildDemoEvidence().registry.deployTxHash,
+    "0xae42c13c50c1b268a1d38389e27d8fa776264b405e28a1cf11a974dd4b178eae",
+  );
+  assert.equal(buildDemoEvidence().registry.deployBlock, "3854411");
+  assert.equal(buildDemoEvidence().registry.runtimeSha256, registryArtifact.deployedBytecodeSha256);
   assert.equal(evidence.demo.status, "configured_live_object");
   assert.equal(evidence.demo.objectId, "42");
   assert.equal(evidence.demo.accountId, ACCOUNT_ID);
@@ -37,11 +48,40 @@ test("Worker evidence builder keeps privileged credentials out of public state",
   assert.equal(JSON.stringify(evidence).includes("should-not-be-used"), false);
 });
 
+test("Worker evidence builder only defaults deployment metadata for default registry", () => {
+  const deployTxHash = `0x${"ef".repeat(32)}`;
+  const deployBlock = "42";
+  const runtimeSha256 = `0x${"ab".repeat(32)}`;
+  const explicitEvidence = buildDemoEvidence({
+    FOC_PLATFORM_REGISTRY_ADDRESS: REGISTRY,
+    FOC_PLATFORM_REGISTRY_DEPLOY_TX: deployTxHash,
+    FOC_PLATFORM_REGISTRY_DEPLOY_BLOCK: deployBlock,
+    FOC_PLATFORM_REGISTRY_RUNTIME_SHA256: runtimeSha256,
+  });
+  const defaultAddressEvidence = buildDemoEvidence({
+    FOC_PLATFORM_REGISTRY_ADDRESS: "0x8f6563bb9e53aedfe9d87d4c1e162f0371649c18",
+  });
+
+  assert.equal(explicitEvidence.registry.deployTxHash, deployTxHash);
+  assert.equal(explicitEvidence.registry.deployBlock, deployBlock);
+  assert.equal(explicitEvidence.registry.runtimeSha256, runtimeSha256);
+  assert.equal(
+    defaultAddressEvidence.registry.deployTxHash,
+    "0xae42c13c50c1b268a1d38389e27d8fa776264b405e28a1cf11a974dd4b178eae",
+  );
+  assert.equal(defaultAddressEvidence.registry.deployBlock, "3854411");
+  assert.equal(defaultAddressEvidence.registry.runtimeSha256, registryArtifact.deployedBytecodeSha256);
+});
+
 test("Worker serves HTML and public evidence endpoints", async () => {
+  const staleRegistryEnv = {
+    FOC_PLATFORM_REGISTRY_ADDRESS: REGISTRY,
+    FOC_PLATFORM_REGISTRY_RUNTIME_SHA256: STALE_REGISTRY_RUNTIME_SHA256,
+  };
   const html = await handleCalibrationDemoRequest(
     new Request("https://demo.example/"),
     {
-      FOC_PLATFORM_REGISTRY_ADDRESS: REGISTRY,
+      ...staleRegistryEnv,
       FOC_PLATFORM_DEMO_OBJECT_ID: "7",
       FOC_PLATFORM_DEMO_PIECE_CID: "baga-demo-piece",
     },
@@ -49,21 +89,21 @@ test("Worker serves HTML and public evidence endpoints", async () => {
   const evidence = await handleCalibrationDemoRequest(
     new Request("https://demo.example/api/demo/evidence"),
     {
-      FOC_PLATFORM_REGISTRY_ADDRESS: REGISTRY,
+      ...staleRegistryEnv,
       FOC_PLATFORM_DEMO_OBJECT_ID: "7",
     },
   );
   const health = await handleCalibrationDemoRequest(
     new Request("https://demo.example/api/health"),
-    { FOC_PLATFORM_REGISTRY_ADDRESS: REGISTRY },
+    staleRegistryEnv,
   );
   const offlineHtml = await handleCalibrationDemoRequest(
     new Request("https://demo.example/admin?live=false"),
-    { FOC_PLATFORM_REGISTRY_ADDRESS: REGISTRY },
+    staleRegistryEnv,
   );
   const liveHtml = await handleCalibrationDemoRequest(
     new Request("https://demo.example/admin?live=true"),
-    { FOC_PLATFORM_REGISTRY_ADDRESS: REGISTRY },
+    staleRegistryEnv,
   );
 
   assert.equal(html.status, 200);
@@ -139,6 +179,7 @@ test("Worker dashboard APIs expose injected direct-read admin pages", async () =
   };
   const env = {
     FOC_PLATFORM_REGISTRY_ADDRESS: REGISTRY,
+    FOC_PLATFORM_REGISTRY_RUNTIME_SHA256: STALE_REGISTRY_RUNTIME_SHA256,
     FOC_PLATFORM_DASHBOARD_DEFAULT_PAGE_LIMIT: "2",
   };
 
@@ -150,6 +191,14 @@ test("Worker dashboard APIs expose injected direct-read admin pages", async () =
   const skippedFiles = await handleCalibrationDemoRequest(
     new Request("https://demo.example/api/admin/files"),
     env,
+    { dashboardAdapter },
+  );
+  const noHashSkippedOverview = await handleCalibrationDemoRequest(
+    new Request("https://demo.example/api/admin/overview"),
+    {
+      FOC_PLATFORM_REGISTRY_ADDRESS: REGISTRY,
+      FOC_PLATFORM_DASHBOARD_DEFAULT_PAGE_LIMIT: "2",
+    },
     { dashboardAdapter },
   );
   const overview = await handleCalibrationDemoRequest(
@@ -222,6 +271,10 @@ test("Worker dashboard APIs expose injected direct-read admin pages", async () =
   const skippedFilesBody = await skippedFiles.json();
   assert.equal(skippedFilesBody.source, "skipped");
   assert.equal("files" in skippedFilesBody, false);
+  assert.equal(noHashSkippedOverview.status, 200);
+  const noHashSkippedOverviewBody = await noHashSkippedOverview.json();
+  assert.equal(noHashSkippedOverviewBody.source, "skipped");
+  assert.equal(noHashSkippedOverviewBody.metadata.dashboardLiveDefault, false);
 
   assert.equal(overview.status, 200);
   const overviewBody = await overview.json();
@@ -404,6 +457,51 @@ test("Calibration registry runner treats blank demo ID env vars as unset", async
       datasetId: "12525",
       pieceId: "35",
     },
+  );
+});
+
+test("Calibration registry runner only defaults deployment metadata for default registry", async () => {
+  const runner = await import(`../scripts/run-calibration-registry-demo.mjs?deploy=${Date.now()}`);
+  const currentRuntime = registryArtifact.deployedBytecodeSha256;
+  const defaultDeployTx =
+    "0xae42c13c50c1b268a1d38389e27d8fa776264b405e28a1cf11a974dd4b178eae";
+  const defaultDeployBlock = "3854411";
+  const explicitDeployTx = `0x${"cd".repeat(32)}`;
+  const explicitRuntime = `0x${"ab".repeat(32)}`;
+  const defaultRegistry = "0x8F6563Bb9E53aeDfE9d87d4C1E162f0371649c18";
+
+  assert.equal(runner.resolveRegistryDeployTxHash({}, defaultRegistry), defaultDeployTx);
+  assert.equal(runner.resolveRegistryDeployBlock({}, defaultRegistry), defaultDeployBlock);
+  assert.equal(runner.resolveRegistryRuntimeSha256({}, defaultRegistry), currentRuntime);
+  assert.equal(runner.resolveRegistryDeployTxHash({}, defaultRegistry.toLowerCase()), defaultDeployTx);
+  assert.equal(runner.resolveRegistryDeployBlock({}, defaultRegistry.toLowerCase()), defaultDeployBlock);
+  assert.equal(runner.resolveRegistryRuntimeSha256({}, defaultRegistry.toLowerCase()), currentRuntime);
+  assert.equal(
+    runner.resolveRegistryDeployTxHash({ FOC_PLATFORM_REGISTRY_DEPLOY_TX: explicitDeployTx }, REGISTRY),
+    explicitDeployTx,
+  );
+  assert.equal(
+    runner.resolveRegistryDeployBlock({ FOC_PLATFORM_REGISTRY_DEPLOY_BLOCK: " 42 " }, REGISTRY),
+    "42",
+  );
+  assert.equal(
+    runner.resolveRegistryRuntimeSha256(
+      { FOC_PLATFORM_REGISTRY_RUNTIME_SHA256: explicitRuntime },
+      REGISTRY,
+    ),
+    explicitRuntime,
+  );
+  assert.throws(
+    () => runner.resolveRegistryDeployTxHash({}, REGISTRY),
+    /FOC_PLATFORM_REGISTRY_DEPLOY_TX is required/,
+  );
+  assert.throws(
+    () => runner.resolveRegistryDeployBlock({}, REGISTRY),
+    /FOC_PLATFORM_REGISTRY_DEPLOY_BLOCK is required/,
+  );
+  assert.throws(
+    () => runner.resolveRegistryRuntimeSha256({}, REGISTRY),
+    /FOC_PLATFORM_REGISTRY_RUNTIME_SHA256 is required/,
   );
 });
 

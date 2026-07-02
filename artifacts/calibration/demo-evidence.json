@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-01T14:29:04.326Z",
+  "generatedAt": "2026-07-02T02:30:32.494Z",
   "mode": "calibration_live_evidence",
   "network": "filecoin_calibration",
   "chainId": 314159,
   "registry": {
-    "address": "0x7771d916a9d742B1D60597a332C7ABBd5796609c",
-    "deployTxHash": "0xb6a4469ae4bff657326d25dd9989ebae54f03467c8ddee19001b1c114fe70552",
-    "deployBlock": "3852147",
-    "runtimeSha256": "0xed478a27e255a1b27989ffa4f2fcbf38f1a9ec61a84c8d3e20aceb4e26f72040",
+    "address": "0x8F6563Bb9E53aeDfE9d87d4C1E162f0371649c18",
+    "deployTxHash": "0xae42c13c50c1b268a1d38389e27d8fa776264b405e28a1cf11a974dd4b178eae",
+    "deployBlock": "3854411",
+    "runtimeSha256": "0x2c49443e7a9ebf3337453240e706df249d29f4f217ec948d6c10e9502a199d1f",
     "rootAddress": "0xF00DCE36817586672B47480FB48C94177A97278B"
   },
   "demo": {
@@ -23,11 +23,12 @@
     "uploadTxHash": null,
     "uploadEvidence": "FOC MCP upload call timed out locally, but dataset read shows piece metadata.",
     "registryTxHashes": {
-      "setCoordinator": "0xcf21feda99029624d18bcf17035f0f5d0f9c7bc67680ca0d32f210d6acf370ce",
-      "requestUpload": "0x552b1da9b049dc1301effcc34c497625a1e09934b25bec7e5a3fe607ba3382fd",
-      "startUpload": "0x1d1104fb0807ff05f4a4c9045dcfc888a54bd6d143edab25e19ec6d4bd6a8bb1",
-      "recordDataset": "0x3ec159924041a28531652a23ca4343f7aa8186da47f5c27cc6e8410bee5a3ea3",
-      "finalizeUpload": "0xebbf1d335df22f3607e9552753360d80d48fd28d199ef0afa19f052d5fd57608"
+      "setCoordinator": "0x22a29586247fa39e8d3277c754a42466f1936a3377f2d62ab50ddf1337035cd1",
+      "setRelayer": "0x93153de2f1653b1e632dff19f2dfd632f5f2a6390af20b39097a53607c162570",
+      "requestUpload": "0x35c561f8b6278b63deb1d272b8cc2b7663a45eb3cc564e75092bbeb5ebf12ccf",
+      "startUpload": "0x6c57ded5248162049d64d372c2d1bde7e37c788edeedafc454bbbd2e3f841f38",
+      "recordDataset": "0xb65836f00e8b7a24734e3d5e62d64ad305e3234fd879e2a435b1665d273b6669",
+      "finalizeUpload": "0xe046f47af71e7da40ed475aba0e3ba8ac94677ae2de7341e1b59e2f8e367a2a4"
     },
     "request": {
       "accountId": "0xfaa4a252e3d762275f3bb2baccba097024ed47a08845bee0de79a2ee58514e01",
@@ -79,9 +80,9 @@
         "actualCost": "0",
         "status": 3,
         "coordinator": "0xF00DCE36817586672B47480FB48C94177A97278B",
-        "requestExpiresAt": "1783002330",
-        "createdAt": "1782915930",
-        "updatedAt": "1782916110",
+        "requestExpiresAt": "1783045620",
+        "createdAt": "1782959220",
+        "updatedAt": "1782959400",
         "receiptHash": "0xce534bd735f5dea29729cd9a25ebcf5e1ff469b0979317d5e50dce75fccbb3c0"
       },
       "usage": {
@@ -113,23 +114,67 @@
         "datasetId": "12524",
         "storageClass": "0x0e6acc625c140754b256b76ddbbb54fdac3cbed1a8405e4b477401bd17f16282",
         "withCDN": false,
-        "createdAt": "1782916050",
-        "updatedAt": "1782916050"
+        "createdAt": "1782959340",
+        "updatedAt": "1782959340"
+      }
+    },
+    "dashboard": {
+      "sourceOfTruth": "FocPlatformRegistry direct contract count/list/detail/readBatch views",
+      "counts": {
+        "objectCount": "1",
+        "accountCount": "1",
+        "datasetRecordCount": "1",
+        "coordinatorCount": "1",
+        "relayerCount": "1"
+      },
+      "pages": {
+        "objectIds": [
+          "1"
+        ],
+        "accountIds": [
+          "0xfaa4a252e3d762275f3bb2baccba097024ed47a08845bee0de79a2ee58514e01"
+        ],
+        "accountObjectIds": [
+          "1"
+        ],
+        "datasetKeys": [
+          {
+            "accountId": "0xfaa4a252e3d762275f3bb2baccba097024ed47a08845bee0de79a2ee58514e01",
+            "providerId": "4",
+            "datasetId": "12524"
+          }
+        ],
+        "coordinatorAddresses": [
+          "0xF00DCE36817586672B47480FB48C94177A97278B"
+        ],
+        "relayerAddresses": [
+          "0xF00DCE36817586672B47480FB48C94177A97278B"
+        ]
+      },
+      "detailReads": {
+        "objectId": "1",
+        "coordinatorPolicy": {
+          "allowed": true,
+          "maxFinalizeDelay": "86400",
+          "sessionKeyExpiresAt": "0",
+          "permissionsHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "relayer": {
+          "address": "0xF00DCE36817586672B47480FB48C94177A97278B",
+          "allowed": true
+        }
+      },
+      "readBatch": {
+        "method": "readBatch",
+        "callCount": 5,
+        "resultCount": 5
       }
     }
   },
   "worker": {
     "mode": "read_only_public_evidence",
     "privilegedActions": false,
-    "servesPrivateKeys": false,
-    "url": "https://foc-platform-calibration-demo.snissn.workers.dev",
-    "versionId": "bee0fdaf-f4ac-4a6a-8556-46842d76c6cb",
-    "startupTimeMs": 14,
-    "validatedEndpoints": [
-      "/api/health",
-      "/api/demo/evidence",
-      "/api/demo/registry"
-    ]
+    "servesPrivateKeys": false
   },
   "tokenHost": {
     "mode": "hand_written_registry_wrapper",

@@ -93,6 +93,13 @@ Calibration registry deployment and runtime bytecode verification only. It does
 not prove FOC funding/approval, Synapse upload, session-key authorization,
 dataset attribution, receipt finalization, or expiry/revocation behavior.
 
+The current direct-onchain Worker demo evidence is recorded in
+[`artifacts/calibration/demo-evidence.json`](../artifacts/calibration/demo-evidence.json)
+and [`docs/calibration-worker-demo.md`](./calibration-worker-demo.md). That
+evidence points at the pagination-capable Calibration registry used by the
+public dashboard and proves bounded count/list/detail/readBatch reads for the
+configured object.
+
 ## Read Model
 
 `src/registry/read-model.mjs` exposes:

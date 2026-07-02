@@ -33,6 +33,7 @@ const UPLOAD_STATUS = [
 ];
 
 const FINALIZATION_STATUS = ["Committed", "Partial", "Failed"];
+const DEV_ANVIL_TRANSACTION_GAS = 5_000_000n;
 
 export const DEV_UPLOAD_SPINE_FIXTURE = Object.freeze({
   accountId: devHash("account:demo-customer"),
@@ -84,6 +85,7 @@ export async function runDevUploadSpine({ rpcUrl, chain = foundry, accounts } = 
   const deployTx = await rootClient.deployContract({
     abi: registryAbi,
     bytecode: registryArtifact.bytecode,
+    gas: DEV_ANVIL_TRANSACTION_GAS,
   });
   const deployReceipt = await publicClient.waitForTransactionReceipt({ hash: deployTx });
   assertSuccessfulReceipt(deployReceipt, "deploy registry");
@@ -254,6 +256,7 @@ async function writeAndWait(publicClient, walletClient, registryAddress, functio
     abi: registryAbi,
     functionName,
     args,
+    gas: DEV_ANVIL_TRANSACTION_GAS,
   });
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   assertSuccessfulReceipt(receipt, functionName);
