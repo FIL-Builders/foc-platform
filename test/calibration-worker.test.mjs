@@ -192,6 +192,11 @@ test("Worker dashboard APIs expose injected direct-read admin pages", async () =
     env,
     { dashboardAdapter },
   );
+  const relayerSearch = await handleCalibrationDemoRequest(
+    new Request(`https://demo.example/api/admin/coordinators?live=true&q=${RELAYER}`),
+    env,
+    { dashboardAdapter },
+  );
   const uppercaseCoordinatorFilter = await handleCalibrationDemoRequest(
     new Request(
       "https://demo.example/api/admin/coordinators?live=true&coordinator=0x000000000000000000000000000000000000ABCD",
@@ -255,6 +260,13 @@ test("Worker dashboard APIs expose injected direct-read admin pages", async () =
   const coordinatorBody = await coordinators.json();
   assert.equal(coordinatorBody.coordinators[0].coordinator, COORDINATOR);
   assert.equal(coordinatorBody.relayers[0].relayer, RELAYER);
+  assert.equal(relayerSearch.status, 200);
+  const relayerSearchBody = await relayerSearch.json();
+  assert.deepEqual(relayerSearchBody.coordinators, []);
+  assert.deepEqual(
+    relayerSearchBody.relayers.map((row) => row.relayer),
+    [RELAYER],
+  );
   assert.equal(uppercaseCoordinatorFilter.status, 200);
   assert.deepEqual((await uppercaseCoordinatorFilter.json()).coordinators.map((row) => row.coordinator), [
     COORDINATOR,

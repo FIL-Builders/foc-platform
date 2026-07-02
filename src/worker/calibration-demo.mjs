@@ -531,7 +531,7 @@ async function readDashboardApi({ route, query, evidence, env, options }) {
           })),
           query,
         ),
-        relayers: relayerPage.relayers,
+        relayers: filterRelayerRows(relayerPage.relayers, query),
       };
     }
     case "reconciliation": {
@@ -873,6 +873,10 @@ function filterCoordinatorRows(rows, query) {
     query,
     ["coordinator", "permissionsHash", "sessionStatus"],
   );
+}
+
+function filterRelayerRows(rows, query) {
+  return textFilter(rows, query, ["relayer", "allowed"]);
 }
 
 function filterReconciliationRows(rows, query) {
