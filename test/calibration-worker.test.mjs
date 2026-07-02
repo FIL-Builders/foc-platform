@@ -157,6 +157,17 @@ test("Worker dashboard APIs expose injected direct-read admin pages", async () =
     },
     { dashboardAdapter },
   );
+  const upgradedBareHexOverview = await handleCalibrationDemoRequest(
+    new Request("https://demo.example/api/admin/overview"),
+    {
+      ...env,
+      FOC_PLATFORM_REGISTRY_RUNTIME_SHA256: registryArtifact.deployedBytecodeSha256.replace(
+        /^0x/i,
+        "",
+      ),
+    },
+    { dashboardAdapter },
+  );
   const files = await handleCalibrationDemoRequest(
     new Request("https://demo.example/api/admin/files?live=true&status=Committed&q=0000"),
     env,
@@ -210,6 +221,10 @@ test("Worker dashboard APIs expose injected direct-read admin pages", async () =
   const upgradedOverviewBody = await upgradedOverview.json();
   assert.equal(upgradedOverviewBody.summary.objectCount, 2);
   assert.equal(upgradedOverviewBody.metadata.dashboardLiveDefault, true);
+  assert.equal(upgradedBareHexOverview.status, 200);
+  const upgradedBareHexOverviewBody = await upgradedBareHexOverview.json();
+  assert.equal(upgradedBareHexOverviewBody.summary.objectCount, 2);
+  assert.equal(upgradedBareHexOverviewBody.metadata.dashboardLiveDefault, true);
 
   assert.equal(files.status, 200);
   const filesBody = await files.json();

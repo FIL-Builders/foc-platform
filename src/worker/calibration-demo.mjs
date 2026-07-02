@@ -692,7 +692,7 @@ function dashboardDirectReadAbiMatches(evidence) {
 }
 
 function normalizeHash(value) {
-  return optionalString(value)?.toLowerCase() ?? "";
+  return optionalString(value)?.toLowerCase().replace(/^0x/, "") ?? "";
 }
 
 function dashboardMetadata(evidence, env = {}) {
