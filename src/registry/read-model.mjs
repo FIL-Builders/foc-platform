@@ -1,9 +1,7 @@
-import { readFileSync } from "node:fs";
 import { decodeEventLog, encodeFunctionData } from "viem";
+import registryArtifactJson from "../../artifacts/contracts/FocPlatformRegistry.json" with { type: "json" };
 
-const artifactUrl = new URL("../../artifacts/contracts/FocPlatformRegistry.json", import.meta.url);
-
-export const registryArtifact = JSON.parse(readFileSync(artifactUrl, "utf8"));
+export const registryArtifact = registryArtifactJson;
 export const registryAbi = registryArtifact.abi;
 
 const FINALIZATION_STATUS = ["Committed", "Partial", "Failed"];

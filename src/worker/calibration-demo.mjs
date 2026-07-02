@@ -1,5 +1,17 @@
 import { createPublicClient, getAddress, http, isAddress } from "viem";
 import { filecoinCalibration } from "viem/chains";
+import { buildAdminSurfaces } from "../admin/reconciliation.mjs";
+import { createTokenHostRegistryDirectReadAdapter } from "../demo/tokenhost-wrapper.mjs";
+import {
+  createRegistryReadModel,
+  registryAccountCountRead,
+  registryCoordinatorCountRead,
+  registryDatasetRecordCountRead,
+  registryDirectReadDefaults,
+  registryObjectCountRead,
+  registryArtifact,
+  registryRelayerCountRead,
+} from "../registry/read-model.mjs";
 
 const DEFAULT_REGISTRY_ADDRESS = "0x7771d916a9d742B1D60597a332C7ABBd5796609c";
 const DEFAULT_REGISTRY_DEPLOY_TX =
@@ -7,6 +19,22 @@ const DEFAULT_REGISTRY_DEPLOY_TX =
 const DEFAULT_REGISTRY_RUNTIME_SHA256 =
   "0xed478a27e255a1b27989ffa4f2fcbf38f1a9ec61a84c8d3e20aceb4e26f72040";
 const DEFAULT_RPC_URL = "https://api.calibration.node.glif.io/rpc/v1";
+const DEFAULT_DASHBOARD_PAGE_LIMIT = 20;
+const PAGE_SCOPED_RECONCILIATION_OMITTED_FAMILIES = Object.freeze([
+  "account_usage",
+  "dataset_records",
+  "coordinator_policies",
+]);
+const PAGE_SCOPED_RECONCILIATION_OMITTED_CODES = new Set([
+  "missing_dataset_record",
+  "usage_active_bytes_mismatch",
+  "usage_pending_bytes_mismatch",
+  "usage_reserved_cost_mismatch",
+  "account_over_quota",
+  "uploading_object_missing_coordinator",
+  "uploading_object_disallowed_coordinator",
+  "uploading_object_expired_coordinator",
+]);
 const UPLOAD_STATUS_LABELS = Object.freeze([
   "None",
   "Requested",
@@ -18,6 +46,14 @@ const UPLOAD_STATUS_LABELS = Object.freeze([
   "Expired",
   "Deleted",
 ]);
+const DASHBOARD_API_ENDPOINTS = Object.freeze({
+  overview: "/api/admin/overview",
+  files: "/api/admin/files",
+  accounts: "/api/admin/accounts",
+  datasets: "/api/admin/datasets",
+  coordinators: "/api/admin/coordinators",
+  reconciliation: "/api/admin/reconciliation",
+});
 
 // Kept local to make the deployed Worker bundle independent of Node-oriented
 // artifact generation modules.
@@ -161,10 +197,11 @@ export async function handleCalibrationDemoRequest(request, env = {}, options = 
 
   const url = new URL(request.url);
   const evidence = buildDemoEvidence(env);
+  const shouldReadDashboard = dashboardLiveReadsEnabled(url, evidence);
   const shouldReadRegistry = url.searchParams.get("live") !== "false";
 
-  if (url.pathname === "/" || url.pathname === "/demo") {
-    return htmlResponse(renderDemoHtml(evidence));
+  if (url.pathname === "/" || url.pathname === "/demo" || url.pathname === "/admin") {
+    return htmlResponse(renderAdminDashboardHtml(evidence, { live: shouldReadDashboard }));
   }
 
   if (url.pathname === "/api/health") {
@@ -179,6 +216,47 @@ export async function handleCalibrationDemoRequest(request, env = {}, options = 
 
   if (url.pathname === "/api/demo/evidence") {
     return jsonResponse(withLinks(evidence, url));
+  }
+
+  if (url.pathname.startsWith("/api/admin/")) {
+    const dashboardRoute = dashboardApiRoute(url.pathname);
+    if (!dashboardRoute) {
+      return jsonResponse({ error: { code: "not_found" } }, { status: 404 });
+    }
+
+    if (!shouldReadDashboard) {
+      return jsonResponse({
+        source: "skipped",
+        route: dashboardRoute,
+        metadata: dashboardMetadata(evidence, env),
+        evidence: withLinks(evidence, url),
+      });
+    }
+
+    try {
+      return jsonResponse(
+        await readDashboardApi({
+          route: dashboardRoute,
+          query: url.searchParams,
+          evidence,
+          env,
+          options,
+        }),
+      );
+    } catch (error) {
+      const status = error instanceof DashboardApiError ? error.status : 502;
+      return jsonResponse(
+        {
+          error: {
+            code: error instanceof DashboardApiError ? error.code : "dashboard_read_failed",
+            message: error?.message ?? "dashboard read failed",
+          },
+          metadata: dashboardMetadata(evidence, env),
+          evidence: withLinks(evidence, url),
+        },
+        { status },
+      );
+    }
   }
 
   if (url.pathname === "/api/demo/registry") {
@@ -253,7 +331,14 @@ export function buildDemoEvidence(env = {}) {
       mode: "read_only_public_evidence",
       privilegedActions: false,
       servesPrivateKeys: false,
-      endpoints: ["/", "/api/health", "/api/demo/evidence", "/api/demo/registry"],
+      endpoints: [
+        "/",
+        "/admin",
+        "/api/health",
+        "/api/demo/evidence",
+        "/api/demo/registry",
+        ...Object.values(DASHBOARD_API_ENDPOINTS),
+      ],
     },
     boundaries: [
       "The Worker serves public evidence and performs public registry reads only.",
@@ -341,30 +426,526 @@ export async function readPublicRegistrySnapshot(evidence, env = {}) {
   return snapshot;
 }
 
-function renderDemoHtml(evidence) {
-  const status = evidence.demo.status;
+async function readDashboardApi({ route, query, evidence, env, options }) {
+  const metadata = dashboardMetadata(evidence, env);
+  const adapter = createDashboardReadAdapter({ evidence, env, options, metadata });
+  const limit = dashboardPageLimit(query, env);
+  const includeTerminal = query.get("includeTerminal") !== "false";
+
+  switch (route) {
+    case "overview": {
+      const summary = await readDashboardOverviewSummary({
+        adapter,
+        evidence,
+        env,
+        options,
+        metadata,
+      });
+      return {
+        metadata,
+        summary,
+        sourceOfTruth: registryDirectReadDefaults,
+        endpoints: DASHBOARD_API_ENDPOINTS,
+      };
+    }
+    case "files": {
+      const page = await adapter.readObjectPage({
+        cursorIdExclusive: dashboardCursor(query),
+        limit,
+        includeTerminal,
+      });
+      return {
+        metadata,
+        pagination: dashboardPagination(page.pagination, page.ids.length, limit),
+        ids: page.ids,
+        files: filterObjectRows(fileRowsFromObjectPage(page), query),
+      };
+    }
+    case "accounts": {
+      const page = await adapter.readAccountPage({
+        offset: dashboardOffset(query),
+        limit,
+        includeTerminal,
+      });
+      return {
+        metadata,
+        pagination: dashboardPagination(page.pagination, page.accounts.length, limit),
+        accounts: filterAccountRows(
+          page.accounts.map((row) => ({
+            accountId: row.accountId,
+            objectIds: row.objectIds,
+            objectPagination: row.objectPagination,
+            ...row.usage,
+          })),
+          query,
+        ),
+      };
+    }
+    case "datasets": {
+      const page = await adapter.readDatasetPage({
+        offset: dashboardOffset(query),
+        limit,
+      });
+      return {
+        metadata,
+        pagination: dashboardPagination(page.pagination, page.datasets.length, limit),
+        datasets: filterDatasetRows(
+          page.datasets.map((row) => ({
+            key: row.key,
+            ...row.dataset,
+          })),
+          query,
+        ),
+      };
+    }
+    case "coordinators": {
+      const [coordinatorPage, relayerPage] = await Promise.all([
+        adapter.readCoordinatorPage({
+          offset: dashboardOffset(query),
+          limit,
+        }),
+        adapter.readRelayerPage({
+          offset: dashboardOffset(query),
+          limit,
+        }),
+      ]);
+      return {
+        metadata,
+        pagination: {
+          coordinators: dashboardPagination(
+            coordinatorPage.pagination,
+            coordinatorPage.coordinators.length,
+            limit,
+          ),
+          relayers: dashboardPagination(
+            relayerPage.pagination,
+            relayerPage.relayers.length,
+            limit,
+          ),
+        },
+        coordinators: filterCoordinatorRows(
+          coordinatorPage.coordinators.map((row) => ({
+            coordinator: row.coordinator,
+            ...row.policy,
+            sessionStatus: coordinatorSessionStatus(row.policy, metadata.readUnixTime),
+          })),
+          query,
+        ),
+        relayers: filterRelayerRows(relayerPage.relayers, query),
+      };
+    }
+    case "reconciliation": {
+      const objectPage = await adapter.readObjectPage({
+        cursorIdExclusive: dashboardCursor(query),
+        limit,
+        includeTerminal,
+      });
+      const reconciliation = buildPageScopedReconciliation(objectPage, {
+        now: metadata.readUnixTime,
+      });
+      return {
+        metadata,
+        pagination: dashboardPagination(
+          objectPage.pagination,
+          objectPage.objects.length,
+          limit,
+        ),
+        ids: objectPage.ids,
+        reconciliation: {
+          ...reconciliation,
+          checks: filterReconciliationRows(reconciliation.checks, query),
+        },
+        sourceOfTruth: objectPage.sourceOfTruth,
+      };
+    }
+    default:
+      throw new DashboardApiError(404, "not_found", "dashboard API route not found");
+  }
+}
+
+function createDashboardReadAdapter({ evidence, env, options, metadata }) {
+  if (options.dashboardAdapter) return options.dashboardAdapter;
+  if (options.createDashboardAdapter) {
+    return options.createDashboardAdapter({ evidence, env, metadata });
+  }
+
+  const registryAddress = evidence.registry.address;
+  if (!isAddress(registryAddress)) {
+    throw new Error("FOC_PLATFORM_REGISTRY_ADDRESS must be an EVM address");
+  }
+
+  const publicClient =
+    options.publicClient ??
+    createPublicClient({
+      chain: filecoinCalibration,
+      transport: http(metadata.rpcUrl),
+    });
+
+  return createTokenHostRegistryDirectReadAdapter({
+    publicClient,
+    registryAddress,
+    maxPageSize: metadata.maxPageSize,
+    detailConcurrency: parsePositiveInteger(
+      env.FOC_PLATFORM_DASHBOARD_DETAIL_CONCURRENCY,
+      4,
+    ),
+    maxPagesPerSurface: parsePositiveInteger(
+      env.FOC_PLATFORM_DASHBOARD_MAX_PAGES_PER_SURFACE,
+      100,
+    ),
+    includeTerminal: true,
+    now: metadata.readUnixTime,
+  });
+}
+
+async function readDashboardOverviewSummary({ adapter, evidence, env, options, metadata }) {
+  if (adapter.readOverviewCounts) {
+    return overviewSummaryFromCounts(
+      await adapter.readOverviewCounts({ evidence, env, metadata }),
+    );
+  }
+
+  if (options.dashboardAdapter || options.createDashboardAdapter) {
+    const surfaces = await adapter.readAdminSurfaces({
+      route: { name: "dashboard" },
+      limit: BigInt(metadata.defaultPageLimit),
+      includeTerminal: true,
+      now: metadata.readUnixTime,
+    });
+    return surfaces.summary;
+  }
+
+  const registryAddress = evidence.registry.address;
+  if (!isAddress(registryAddress)) {
+    throw new Error("FOC_PLATFORM_REGISTRY_ADDRESS must be an EVM address");
+  }
+
+  const publicClient =
+    options.publicClient ??
+    createPublicClient({
+      chain: filecoinCalibration,
+      transport: http(metadata.rpcUrl),
+    });
+
+  const [
+    objectCount,
+    accountCount,
+    datasetCount,
+    coordinatorCount,
+    relayerCount,
+  ] = await Promise.all(
+    [
+      registryObjectCountRead(registryAddress),
+      registryAccountCountRead(registryAddress),
+      registryDatasetRecordCountRead(registryAddress),
+      registryCoordinatorCountRead(registryAddress),
+      registryRelayerCountRead(registryAddress),
+    ].map((read) => publicClient.readContract(read)),
+  );
+
+  return overviewSummaryFromCounts({
+    objectCount,
+    accountCount,
+    datasetCount,
+    coordinatorCount,
+    relayerCount,
+  });
+}
+
+function overviewSummaryFromCounts(counts = {}) {
+  return {
+    mode: "contractCounts",
+    objectCount: jsonCount(counts.objectCount),
+    accountCount: jsonCount(counts.accountCount),
+    datasetCount: jsonCount(counts.datasetCount),
+    providerCount: null,
+    coordinatorCount: jsonCount(counts.coordinatorCount),
+    relayerCount: jsonCount(counts.relayerCount),
+    objectStatuses: null,
+    mismatchCount: null,
+    warningCount: null,
+    pendingEvidenceCount: null,
+  };
+}
+
+function jsonCount(value) {
+  const count = BigInt(value ?? 0);
+  return count <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(count) : count.toString();
+}
+
+function dashboardApiRoute(pathname) {
+  return Object.entries(DASHBOARD_API_ENDPOINTS).find(([, path]) => path === pathname)?.[0] ?? null;
+}
+
+function dashboardLiveReadsEnabled(url, evidence) {
+  const live = url.searchParams.get("live");
+  if (live === "true") return true;
+  if (live === "false") return false;
+  return dashboardDirectReadAbiMatches(evidence);
+}
+
+function dashboardDirectReadAbiMatches(evidence) {
+  return (
+    normalizeHash(evidence.registry.runtimeSha256) ===
+    normalizeHash(registryArtifact.deployedBytecodeSha256)
+  );
+}
+
+function normalizeHash(value) {
+  return optionalString(value)?.toLowerCase().replace(/^0x/, "") ?? "";
+}
+
+function dashboardMetadata(evidence, env = {}) {
+  const now = new Date();
+  return {
+    schemaVersion: 1,
+    sourceOfTruth: registryDirectReadDefaults.sourceOfTruth,
+    network: evidence.network,
+    chainId: evidence.chainId,
+    registryAddress: evidence.registry.address,
+    registryDeployTx: evidence.registry.deployTxHash,
+    registryRuntimeSha256: evidence.registry.runtimeSha256,
+    expectedRuntimeSha256: registryArtifact.deployedBytecodeSha256,
+    dashboardLiveDefault: dashboardDirectReadAbiMatches(evidence),
+    rpcUrl: optionalString(env.FILECOIN_CALIBRATION_RPC_URL) ?? DEFAULT_RPC_URL,
+    readAt: now.toISOString(),
+    readUnixTime: Math.floor(now.getTime() / 1000),
+    maxPageSize: parsePositiveInteger(
+      env.FOC_PLATFORM_DASHBOARD_MAX_PAGE_SIZE,
+      registryDirectReadDefaults.maxPageSize,
+    ),
+    defaultPageLimit: parsePositiveInteger(
+      env.FOC_PLATFORM_DASHBOARD_DEFAULT_PAGE_LIMIT,
+      DEFAULT_DASHBOARD_PAGE_LIMIT,
+    ),
+    workerMode: evidence.worker.mode,
+    privilegedActions: false,
+    caveats: [
+      "Dashboard endpoints perform public read-only contract calls.",
+      "FOC payment/provider evidence is shown only when public evidence exists.",
+      "Session-key coordinator and production payment readiness remain tracked outside this public dashboard.",
+    ],
+  };
+}
+
+function dashboardPageLimit(query, env = {}) {
+  const fallback = parsePositiveInteger(
+    env.FOC_PLATFORM_DASHBOARD_DEFAULT_PAGE_LIMIT,
+    DEFAULT_DASHBOARD_PAGE_LIMIT,
+  );
+  const requested = parsePositiveInteger(query.get("limit"), fallback);
+  const max = parsePositiveInteger(
+    env.FOC_PLATFORM_DASHBOARD_MAX_PAGE_SIZE,
+    registryDirectReadDefaults.maxPageSize,
+  );
+  return BigInt(Math.min(requested, max));
+}
+
+function dashboardCursor(query) {
+  return parseBigIntString(query.get("cursor"), 0n);
+}
+
+function dashboardOffset(query) {
+  return parseBigIntString(query.get("offset"), 0n);
+}
+
+function dashboardPagination(pagination, rowCount, limit) {
+  const pageLimit = Number(limit);
+  return {
+    ...pagination,
+    rowCount,
+    hasNextPage: pageLimit > 0 && rowCount >= pageLimit,
+  };
+}
+
+function parseBigIntString(value, fallback) {
+  const raw = optionalString(value);
+  if (!raw || !/^\d+$/.test(raw)) return fallback;
+  return BigInt(raw);
+}
+
+function fileRowsFromObjectPage(page) {
+  return (page.objects ?? []).map((row) => ({
+    objectId: row.objectId,
+    accountId: row.object.accountId,
+    user: row.object.user,
+    status: row.object.status,
+    size: row.object.size,
+    requestedCopies: row.object.requestedCopies,
+    completedCopies: row.object.completedCopies,
+    activeBytes: row.object.activeBytes,
+    reservedCost: row.object.reservedCost,
+    actualCost: row.object.actualCost,
+    receiptHash: row.object.receiptHash,
+    receiptPayer: row.receiptPayer,
+    coordinator: row.object.coordinator,
+    providerIds: (row.copyReceipts ?? []).map((receipt) => receipt.providerId),
+    datasetIds: (row.copyReceipts ?? []).map((receipt) => receipt.datasetId),
+    copyReceipts: row.copyReceipts ?? [],
+  }));
+}
+
+function buildPageScopedReconciliation(objectPage, { now } = {}) {
+  const model = createRegistryReadModel();
+  for (const row of objectPage.objects ?? []) {
+    model.objects[row.objectId] = row.object;
+    model.copyReceipts[row.objectId] = row.copyReceipts ?? [];
+    model.receiptPayers[row.objectId] = row.receiptPayer;
+  }
+
+  const surfaces = buildAdminSurfaces({ model }, { now });
+  const checks = surfaces.reconciliation.checks.filter(
+    (check) => !PAGE_SCOPED_RECONCILIATION_OMITTED_CODES.has(check.code),
+  );
+
+  return {
+    ...reconciliationSummaryFromChecks(checks),
+    scope: "object_page",
+    objectCount: objectPage.objects?.length ?? 0,
+    objectIds: objectPage.ids ?? [],
+    omittedCheckFamilies: PAGE_SCOPED_RECONCILIATION_OMITTED_FAMILIES,
+    omittedCheckCodes: Array.from(PAGE_SCOPED_RECONCILIATION_OMITTED_CODES),
+    checks,
+  };
+}
+
+function reconciliationSummaryFromChecks(checks) {
+  const mismatchCount = checks.filter((check) => check.severity === "error").length;
+  const warningCount = checks.filter((check) => check.severity === "warning").length;
+  const pendingEvidenceCount = checks.filter((check) => check.code === "foc_evidence_not_checked").length;
+  return {
+    status:
+      mismatchCount > 0
+        ? "mismatch"
+        : warningCount > 0
+          ? "warning"
+        : pendingEvidenceCount > 0
+          ? "pending_external_evidence"
+          : "matched",
+    mismatchCount,
+    warningCount,
+    pendingEvidenceCount,
+  };
+}
+
+function filterObjectRows(rows, query) {
+  const status = optionalString(query.get("status"));
+  const account = optionalString(query.get("account"));
+  const provider = optionalString(query.get("provider"));
+  const dataset = optionalString(query.get("dataset"));
+  const coordinator = optionalString(query.get("coordinator"))?.toLowerCase();
+  return textFilter(
+    rows.filter((row) => {
+      if (status && row.status !== status) return false;
+      if (account && row.accountId !== account) return false;
+      if (provider && !row.providerIds.includes(provider)) return false;
+      if (dataset && !row.datasetIds.includes(dataset)) return false;
+      if (coordinator && String(row.coordinator ?? "").toLowerCase() !== coordinator) return false;
+      return true;
+    }),
+    query,
+    ["objectId", "accountId", "user", "receiptHash", "receiptPayer", "coordinator"],
+  );
+}
+
+function filterAccountRows(rows, query) {
+  return textFilter(rows, query, ["accountId", "objectIds"]);
+}
+
+function filterDatasetRows(rows, query) {
+  const provider = optionalString(query.get("provider"));
+  const dataset = optionalString(query.get("dataset"));
+  return textFilter(
+    rows.filter((row) => {
+      if (provider && row.providerId !== provider) return false;
+      if (dataset && row.datasetId !== dataset) return false;
+      return true;
+    }),
+    query,
+    ["key", "accountId", "providerId", "datasetId", "payer", "storageClass"],
+  );
+}
+
+function filterCoordinatorRows(rows, query) {
+  const coordinator = optionalString(query.get("coordinator"))?.toLowerCase();
+  return textFilter(
+    rows.filter((row) => !coordinator || String(row.coordinator ?? "").toLowerCase() === coordinator),
+    query,
+    ["coordinator", "permissionsHash", "sessionStatus"],
+  );
+}
+
+function filterRelayerRows(rows, query) {
+  return textFilter(rows, query, ["relayer", "allowed"]);
+}
+
+function filterReconciliationRows(rows, query) {
+  const severity = optionalString(query.get("severity"));
+  const code = optionalString(query.get("code"));
+  return textFilter(
+    rows.filter((row) => {
+      if (severity && row.severity !== severity) return false;
+      if (code && row.code !== code) return false;
+      return true;
+    }),
+    query,
+    ["code", "severity", "objectId", "accountId", "providerId", "datasetId", "coordinator"],
+  );
+}
+
+function textFilter(rows, query, fields) {
+  const raw = optionalString(query.get("q"));
+  if (!raw) return rows;
+  const needle = raw.toLowerCase();
+  return rows.filter((row) =>
+    fields.some((fieldName) => {
+      const value = row[fieldName];
+      if (Array.isArray(value)) return value.some((item) => String(item).toLowerCase().includes(needle));
+      return String(value ?? "").toLowerCase().includes(needle);
+    }),
+  );
+}
+
+function coordinatorSessionStatus(policy, now) {
+  if (!policy.allowed) return "disabled";
+  const expiresAt = BigInt(policy.sessionKeyExpiresAt ?? 0);
+  if (expiresAt === 0n) return "active";
+  return BigInt(now) > expiresAt ? "expired" : "active";
+}
+
+class DashboardApiError extends Error {
+  constructor(status, code, message) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+function renderAdminDashboardHtml(evidence, { live = true } = {}) {
   const registry = evidence.registry.address;
-  const objectId = evidence.demo.objectId ?? "not configured";
-  const pieceCid = evidence.demo.pieceCid ?? "pending";
-  const retrievalUrl = evidence.demo.retrievalUrl;
+  const network = evidence.network;
 
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FOC Platform Calibration Demo</title>
+  <title>FOC Platform Admin</title>
   <style>
     :root {
       color-scheme: light;
-      --bg: #f6f7f4;
-      --ink: #17201c;
-      --muted: #62706a;
-      --line: #d8ddd6;
+      --bg: #f5f6f8;
+      --ink: #111827;
+      --muted: #667085;
+      --line: #d9dee7;
       --surface: #ffffff;
-      --accent: #2f6f5e;
-      --warn: #b85c38;
-      --code: #26312d;
+      --surface-2: #eef2f7;
+      --accent: #0f766e;
+      --accent-2: #3255a4;
+      --warn: #a15c16;
+      --bad: #b42318;
+      --good: #087443;
+      --code: #1f2937;
     }
     * { box-sizing: border-box; }
     body {
@@ -373,136 +954,627 @@ function renderDemoHtml(evidence) {
       color: var(--ink);
       font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    main { min-height: 100svh; }
-    .hero {
-      min-height: 52svh;
-      padding: clamp(36px, 7vw, 86px);
-      display: grid;
-      align-items: end;
-      border-bottom: 1px solid var(--line);
-      background:
-        linear-gradient(115deg, rgba(47,111,94,.18), rgba(184,92,56,.10) 48%, rgba(255,255,255,.55)),
-        var(--bg);
+    button, input, select {
+      font: inherit;
     }
-    .hero h1 {
-      max-width: 920px;
+    main {
+      min-height: 100svh;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+      padding: 18px clamp(18px, 4vw, 42px);
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .brand {
+      display: grid;
+      gap: 3px;
+    }
+    h1 {
       margin: 0;
-      font-size: clamp(38px, 7vw, 86px);
-      line-height: .96;
+      font-size: 20px;
       letter-spacing: 0;
     }
-    .hero p {
-      max-width: 720px;
-      margin: 22px 0 0;
+    .meta {
       color: var(--muted);
-      font-size: clamp(16px, 2vw, 21px);
+      font-size: 13px;
+      overflow-wrap: anywhere;
     }
-    .bar {
+    .statusline {
       display: flex;
-      gap: 18px;
+      gap: 8px;
       flex-wrap: wrap;
-      padding: 18px clamp(20px, 7vw, 86px);
-      border-bottom: 1px solid var(--line);
-      background: rgba(255,255,255,.72);
+      justify-content: flex-end;
     }
-    .bar a {
-      color: var(--accent);
-      font-weight: 700;
-      text-decoration: none;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1.1fr) minmax(280px, .9fr);
-      gap: clamp(24px, 5vw, 64px);
-      padding: clamp(28px, 7vw, 86px);
-    }
-    section { border-top: 1px solid var(--line); padding-top: 18px; }
-    h2 { margin: 0 0 18px; font-size: 18px; letter-spacing: 0; }
-    dl { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 10px 18px; margin: 0; }
-    dt { color: var(--muted); }
-    dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--code); }
-    .status {
+    .chip {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      padding: 8px 10px;
+      gap: 6px;
+      min-height: 28px;
+      padding: 4px 9px;
       border: 1px solid var(--line);
-      background: var(--surface);
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--code);
+      font-size: 12px;
       font-weight: 700;
-      color: ${status === "pending_live_upload" ? "var(--warn)" : "var(--accent)"};
+      white-space: nowrap;
     }
-    .flow {
+    .toolbar {
       display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto auto auto;
       gap: 10px;
-      margin-top: 18px;
+      padding: 12px clamp(18px, 4vw, 42px);
+      border-bottom: 1px solid var(--line);
+      background: #fafbfc;
     }
-    .step {
-      display: grid;
-      grid-template-columns: 28px minmax(0, 1fr);
-      gap: 14px;
-      align-items: start;
-      padding: 14px 0;
-      border-top: 1px solid var(--line);
+    .toolbar input, .toolbar select {
+      min-width: 0;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--ink);
+      padding: 0 10px;
     }
-    .num {
-      width: 28px;
-      height: 28px;
+    .workspace {
       display: grid;
-      place-items: center;
-      border-radius: 50%;
-      background: var(--accent);
-      color: white;
-      font-size: 13px;
+      grid-template-columns: 220px minmax(0, 1fr);
+      min-height: 0;
+    }
+    .nav {
+      border-right: 1px solid var(--line);
+      background: #fbfcfd;
+      padding: 14px 10px;
+    }
+    .nav button {
+      width: 100%;
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 2px 0;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--ink);
+      padding: 0 10px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .nav button[aria-selected="true"] {
+      background: #e7edf8;
+      color: var(--accent-2);
       font-weight: 800;
     }
-    .step strong { display: block; margin-bottom: 2px; }
-    .step span { color: var(--muted); }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    @media (max-width: 760px) {
-      .hero { min-height: 44svh; padding: 30px 20px; }
-      .bar { padding: 14px 20px; }
-      .grid { grid-template-columns: 1fr; padding: 28px 20px; }
-      dl { grid-template-columns: 1fr; }
+    .content {
+      min-width: 0;
+      padding: clamp(16px, 3vw, 30px);
+      display: grid;
+      gap: 18px;
+      align-content: start;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(130px, 1fr));
+      gap: 10px;
+    }
+    .metric {
+      min-height: 78px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      padding: 12px;
+    }
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .metric strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 23px;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+    .panel {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 48px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    h2 {
+      margin: 0;
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+    .table-wrap {
+      width: 100%;
+      overflow: auto;
+    }
+    table {
+      width: 100%;
+      min-width: 920px;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      background: #fafbfc;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    td {
+      font-size: 13px;
+    }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--code);
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      background: var(--surface-2);
+    }
+    .pill.good { color: var(--good); }
+    .pill.warn { color: var(--warn); }
+    .pill.bad { color: var(--bad); }
+    .copy {
+      max-width: 100%;
+      border: 0;
+      background: transparent;
+      color: var(--accent-2);
+      padding: 0;
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .empty, .error {
+      padding: 18px 14px;
+      color: var(--muted);
+    }
+    .empty strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--ink);
+    }
+    .subtable-title {
+      padding: 12px 14px 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .error {
+      color: var(--bad);
+    }
+    .footer {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .pager {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+    .pager button {
+      min-height: 30px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--ink);
+      padding: 0 10px;
+      cursor: pointer;
+    }
+    .pager button:disabled {
+      cursor: default;
+      color: var(--muted);
+      background: #f3f4f6;
+    }
+    a {
+      color: var(--accent-2);
+      text-decoration: none;
+      font-weight: 700;
+    }
+    @media (max-width: 980px) {
+      .toolbar { grid-template-columns: 1fr 1fr; }
+      .workspace { grid-template-columns: 1fr; }
+      .nav {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .nav button {
+        width: auto;
+        flex: 0 0 auto;
+      }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 620px) {
+      .topbar { align-items: flex-start; }
+      .statusline { justify-content: flex-start; }
+      .toolbar { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: 1fr; }
+      table { min-width: 760px; }
     }
   </style>
 </head>
 <body>
 <main>
-  <div class="hero">
-    <div>
-      <h1>FOC Platform Calibration Demo</h1>
-      <p>Read-only Worker surface for the Filecoin Calibration registry, Token Host wrapper metadata, and local FOC upload evidence.</p>
+  <header class="topbar">
+    <div class="brand">
+      <h1>FOC Platform Admin</h1>
+      <div class="meta"><span>${escapeHtml(network)}</span> / <span class="mono">${escapeHtml(registry)}</span></div>
     </div>
-  </div>
-  <nav class="bar" aria-label="Demo endpoints">
-    <a href="/api/health">Health</a>
-    <a href="/api/demo/evidence">Evidence JSON</a>
-    <a href="/api/demo/registry">Live registry read</a>
-  </nav>
-  <div class="grid">
-    <section>
-      <h2>Lifecycle Evidence</h2>
-      <p class="status">${escapeHtml(status)}</p>
-      <div class="flow">
-        <div class="step"><div class="num">1</div><div><strong>Registry</strong><span>${escapeHtml(registry)}</span></div></div>
-        <div class="step"><div class="num">2</div><div><strong>Object</strong><span>${escapeHtml(objectId)}</span></div></div>
-        <div class="step"><div class="num">3</div><div><strong>FOC piece</strong><span>${escapeHtml(pieceCid)}</span></div></div>
-        <div class="step"><div class="num">4</div><div><strong>Retrieval</strong><span>${retrievalUrl ? `<a href="${escapeAttribute(retrievalUrl)}">${escapeHtml(retrievalUrl)}</a>` : "pending"}</span></div></div>
-      </div>
-    </section>
-    <section>
-      <h2>Public Configuration</h2>
-      <dl>
-        <dt>Network</dt><dd>${escapeHtml(evidence.network)}</dd>
-        <dt>Chain ID</dt><dd>${escapeHtml(String(evidence.chainId))}</dd>
-        <dt>Mode</dt><dd>${escapeHtml(evidence.mode)}</dd>
-        <dt>Deploy tx</dt><dd>${escapeHtml(evidence.registry.deployTxHash)}</dd>
-        <dt>Runtime SHA</dt><dd>${escapeHtml(evidence.registry.runtimeSha256)}</dd>
-        <dt>Worker authority</dt><dd>read only</dd>
-      </dl>
+    <div class="statusline">
+      <span class="chip">Read only</span>
+      <span class="chip">Direct registry reads</span>
+      <span class="chip">Chain ${escapeHtml(String(evidence.chainId))}</span>
+    </div>
+  </header>
+  <section class="toolbar" aria-label="Dashboard filters">
+    <input id="q" name="q" placeholder="Search ids, addresses, hashes" autocomplete="off">
+    <select id="status" name="status" aria-label="Status filter">
+      <option value="">All statuses</option>
+      ${UPLOAD_STATUS_LABELS.slice(1).map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`).join("")}
+    </select>
+    <input id="provider" name="provider" placeholder="Provider id" autocomplete="off">
+    <select id="limit" name="limit" aria-label="Page limit">
+      <option value="10">10 rows</option>
+      <option value="20" selected>20 rows</option>
+      <option value="50">50 rows</option>
+    </select>
+  </section>
+  <div class="workspace">
+    <nav class="nav" aria-label="Admin views">
+      <button type="button" data-view="files" aria-selected="true">Files <span id="nav-files"></span></button>
+      <button type="button" data-view="accounts" aria-selected="false">Accounts <span id="nav-accounts"></span></button>
+      <button type="button" data-view="datasets" aria-selected="false">Datasets <span id="nav-datasets"></span></button>
+      <button type="button" data-view="coordinators" aria-selected="false">Coordinators <span id="nav-coordinators"></span></button>
+      <button type="button" data-view="reconciliation" aria-selected="false">Reconciliation <span id="nav-reconciliation"></span></button>
+    </nav>
+    <section class="content">
+      <div class="metrics" id="metrics" aria-live="polite"></div>
+      <section class="panel">
+        <div class="panel-header">
+          <h2 id="table-title">Files</h2>
+          <a href="/api/demo/evidence">Evidence JSON</a>
+        </div>
+        <div class="table-wrap" id="table-wrap"></div>
+        <div class="footer" id="footer">Loading current registry state</div>
+      </section>
     </section>
   </div>
 </main>
+<script>
+(() => {
+  const endpoints = ${JSON.stringify(DASHBOARD_API_ENDPOINTS)};
+  const liveReads = ${live ? "true" : "false"};
+  const cursorViews = new Set(["files", "reconciliation"]);
+  const offsetViews = new Set(["accounts", "datasets", "coordinators"]);
+  const state = {
+    view: "files",
+    summary: null,
+    pagination: null,
+    requestSeq: 0,
+    pages: {
+      files: { cursor: "0" },
+      accounts: { offset: "0" },
+      datasets: { offset: "0" },
+      coordinators: { offset: "0" },
+      reconciliation: { cursor: "0" },
+    },
+  };
+  const $ = (id) => document.getElementById(id);
+  const text = (value) => value === undefined || value === null || value === "" ? "n/a" : String(value);
+  const short = (value) => {
+    const raw = text(value);
+    return raw.length > 18 ? raw.slice(0, 10) + "..." + raw.slice(-6) : raw;
+  };
+  const esc = (value) => text(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+  const copy = (value) => '<button type="button" class="copy" title="' + esc(value) + '" data-copy="' + esc(value) + '">' + esc(short(value)) + '</button>';
+  const pill = (value) => {
+    const normalized = text(value);
+    const tone = ["Committed", "active", "matched"].includes(normalized) ? "good" : ["Failed", "Expired", "mismatch", "expired", "disabled"].includes(normalized) ? "bad" : "warn";
+    return '<span class="pill ' + tone + '">' + esc(normalized) + '</span>';
+  };
+  async function fetchJson(path, view = state.view) {
+    const url = new URL(path, location.origin);
+    url.searchParams.set("limit", $("limit").value);
+    url.searchParams.set("live", liveReads ? "true" : "false");
+    const q = $("q").value.trim();
+    const status = $("status").value;
+    const provider = $("provider").value.trim();
+    const page = currentPage(view);
+    if (cursorViews.has(view) && page.cursor !== "0") url.searchParams.set("cursor", page.cursor);
+    if (offsetViews.has(view) && page.offset !== "0") url.searchParams.set("offset", page.offset);
+    if (q) url.searchParams.set("q", q);
+    if (status && view === "files") url.searchParams.set("status", status);
+    if (provider && ["files", "datasets"].includes(view)) url.searchParams.set("provider", provider);
+    const response = await fetch(url);
+    const body = await response.json();
+    if (!response.ok) {
+      throw new Error(body.error?.message || "request failed");
+    }
+    return body;
+  }
+  async function loadOverview() {
+    const body = await fetchJson(endpoints.overview);
+    state.summary = body.summary;
+    renderMetrics(body.summary);
+  }
+  async function loadView() {
+    const view = state.view;
+    const requestId = ++state.requestSeq;
+    $("table-wrap").innerHTML = '<div class="empty">Loading ' + esc(view) + '</div>';
+    $("table-title").textContent = title(view);
+    document.querySelectorAll(".nav button").forEach((button) => {
+      button.setAttribute("aria-selected", String(button.dataset.view === view));
+    });
+    try {
+      const body = await fetchJson(endpoints[view], view);
+      if (requestId !== state.requestSeq || view !== state.view) return;
+      renderView(body, view);
+      renderFooter(body, view);
+    } catch (error) {
+      if (requestId !== state.requestSeq || view !== state.view) return;
+      $("table-wrap").innerHTML = '<div class="error">' + esc(error.message) + '</div>';
+      $("footer").textContent = "Registry read unavailable";
+    }
+  }
+  function renderMetrics(summary = {}) {
+    const warningsUnavailable =
+      summary.warningCount === undefined ||
+      summary.warningCount === null ||
+      summary.mismatchCount === undefined ||
+      summary.mismatchCount === null;
+    const metrics = [
+      ["Objects", summary.objectCount],
+      ["Accounts", summary.accountCount],
+      ["Datasets", summary.datasetCount],
+      ["Providers", summary.providerCount],
+      ["Coordinators", summary.coordinatorCount],
+      ["Warnings", warningsUnavailable ? null : Number(summary.warningCount || 0) + Number(summary.mismatchCount || 0)],
+    ];
+    $("metrics").innerHTML = metrics.map(([label, value]) => '<div class="metric"><span>' + esc(label) + '</span><strong>' + esc(value ?? "n/a") + '</strong></div>').join("");
+    $("nav-files").textContent = summary.objectCount ?? "";
+    $("nav-accounts").textContent = summary.accountCount ?? "";
+    $("nav-datasets").textContent = summary.datasetCount ?? "";
+    $("nav-coordinators").textContent = summary.coordinatorCount ?? "";
+    $("nav-reconciliation").textContent = summary.mismatchCount ?? "";
+  }
+  function renderView(body, view = state.view) {
+    state.pagination = primaryPagination(body.pagination);
+    if (body.source === "skipped") return renderSkippedView(body);
+    if (view === "files") return table(["Object", "Status", "Account", "Size", "Copies", "Providers", "Receipt", "Coordinator"], body.files, (row) => [
+      copy(row.objectId),
+      pill(row.status),
+      copy(row.accountId),
+      esc(row.size),
+      esc(row.completedCopies) + "/" + esc(row.requestedCopies),
+      esc((row.providerIds || []).join(", ") || "n/a"),
+      copy(row.receiptHash),
+      copy(row.coordinator),
+    ]);
+    if (view === "accounts") return table(["Account", "Objects", "Active bytes", "Pending bytes", "Reserved", "Finalized", "Failed"], body.accounts, (row) => [
+      copy(row.accountId),
+      esc((row.objectIds || []).join(", ") || row.activeObjects),
+      esc(row.activeBytes),
+      esc(row.pendingBytes),
+      esc(row.reservedCost),
+      esc(row.totalFinalizedUploads),
+      esc(row.totalFailedUploads),
+    ]);
+    if (view === "datasets") return table(["Dataset", "Provider", "Account", "Payer", "CDN", "Storage class", "Updated"], body.datasets, (row) => [
+      copy(row.datasetId),
+      esc(row.providerId),
+      copy(row.accountId),
+      copy(row.payer),
+      esc(row.withCDN),
+      copy(row.storageClass),
+      esc(row.updatedAt),
+    ]);
+    if (view === "coordinators") return renderCoordinatorView(body);
+    return table(["Severity", "Code", "Object", "Account", "Provider", "Current"], body.reconciliation?.checks || [], (row) => [
+      pill(row.severity),
+      esc(row.code),
+      copy(row.objectId),
+      copy(row.accountId),
+      esc(row.providerId || ""),
+      esc(row.actualCopies || row.actualActiveBytes || row.actualPendingBytes || row.actualReservedCost || ""),
+    ]);
+  }
+  function renderSkippedView(body) {
+    state.pagination = null;
+    const metadata = body.metadata || {};
+    const reason = metadata.dashboardLiveDefault === false
+      ? "Direct onchain reads are skipped because the configured registry runtime does not match the pagination-capable artifact."
+      : "Direct onchain reads are skipped for this request.";
+    $("table-wrap").innerHTML =
+      '<div class="empty"><strong>Dashboard reads unavailable</strong><span>' + esc(reason) + '</span></div>';
+  }
+  function renderCoordinatorView(body) {
+    const coordinatorRows = body.coordinators || [];
+    const relayerRows = body.relayers || [];
+    const sections = [];
+    if (coordinatorRows.length > 0) {
+      sections.push(
+        '<div class="subtable-title">Coordinator policies</div>' +
+        tableMarkup(["Coordinator", "Allowed", "Session", "Expires", "Permissions"], coordinatorRows, (row) => [
+          copy(row.coordinator),
+          pill(row.allowed ? "active" : "disabled"),
+          pill(row.sessionStatus),
+          esc(row.sessionKeyExpiresAt),
+          copy(row.permissionsHash),
+        ]),
+      );
+    }
+    if (relayerRows.length > 0) {
+      sections.push(
+        '<div class="subtable-title">Relayers</div>' +
+        tableMarkup(["Relayer", "Allowed"], relayerRows, (row) => [
+          copy(row.relayer),
+          pill(row.allowed ? "active" : "disabled"),
+        ]),
+      );
+    }
+    if (sections.length === 0) {
+      $("table-wrap").innerHTML = '<div class="empty">No rows on this page</div>';
+      return;
+    }
+    $("table-wrap").innerHTML = sections.join("");
+  }
+  function tableMarkup(headers, rows, mapRow) {
+    return '<table><thead><tr>' + headers.map((header) => '<th>' + esc(header) + '</th>').join("") + '</tr></thead><tbody>' + rows.map((row, index) => '<tr>' + mapRow(row, index).map((cell) => '<td>' + cell + '</td>').join("") + '</tr>').join("") + '</tbody></table>';
+  }
+  function table(headers, rows, mapRow) {
+    if (!rows || rows.length === 0) {
+      $("table-wrap").innerHTML = '<div class="empty">No rows on this page</div>';
+      return;
+    }
+    $("table-wrap").innerHTML = tableMarkup(headers, rows, mapRow);
+  }
+  function renderFooter(body, view = state.view) {
+    const pagination = state.pagination;
+    const metadata = body.metadata || {};
+    const readState = esc(metadata.sourceOfTruth) + " / read " + esc(metadata.readAt) + " / page limit " + esc($("limit").value);
+    if (!pagination) {
+      $("footer").innerHTML = '<span>' + readState + '</span>';
+      return;
+    }
+    const page = currentPage(view);
+    const isFirst = cursorViews.has(view) ? page.cursor === "0" : page.offset === "0";
+    const position = pagination.mode === "objectIdCursor"
+      ? "cursor " + esc(pagination.cursorIdExclusive || "0")
+      : "offset " + esc(pagination.offset || "0");
+    $("footer").innerHTML =
+      '<span>' + readState + " / " + position + '</span>' +
+      '<span class="pager">' +
+      '<button type="button" data-page-action="first"' + (isFirst ? " disabled" : "") + '>First</button>' +
+      '<button type="button" data-page-action="next"' + (!pagination.hasNextPage ? " disabled" : "") + '>Next</button>' +
+      '</span>';
+  }
+  function primaryPagination(pagination) {
+    if (!pagination) return null;
+    if (pagination.coordinators || pagination.relayers) {
+      return combinedOffsetPagination([pagination.coordinators, pagination.relayers]);
+    }
+    return pagination;
+  }
+  function combinedOffsetPagination(pages) {
+    const available = pages.filter(Boolean);
+    if (available.length === 0) return null;
+    const pageWithNext = available.find((page) => page.hasNextPage);
+    const primary = pageWithNext || available[0];
+    return {
+      ...primary,
+      mode: "offset",
+      offset: primary.offset || available[0].offset || "0",
+      nextOffset: pageWithNext?.nextOffset || primary.nextOffset || primary.offset || "0",
+      hasNextPage: available.some((page) => page.hasNextPage),
+    };
+  }
+  function currentPage(view = state.view) {
+    return state.pages[view] || {};
+  }
+  function resetPage(view = state.view) {
+    if (cursorViews.has(view)) state.pages[view].cursor = "0";
+    if (offsetViews.has(view)) state.pages[view].offset = "0";
+  }
+  function resetAllPages() {
+    Object.keys(state.pages).forEach((view) => resetPage(view));
+  }
+  function applyPageAction(action) {
+    const pagination = state.pagination;
+    const page = currentPage();
+    if (action === "first") {
+      resetPage();
+    } else if (action === "next" && pagination?.hasNextPage) {
+      if (pagination.mode === "objectIdCursor") page.cursor = pagination.nextCursorIdExclusive || "0";
+      if (pagination.mode === "offset") page.offset = pagination.nextOffset || "0";
+    }
+    loadView();
+  }
+  function title(view) {
+    return ({ files: "Files", accounts: "Accounts", datasets: "Datasets", coordinators: "Coordinators", reconciliation: "Reconciliation" })[view] || "Files";
+  }
+  document.querySelectorAll(".nav button").forEach((button) => button.addEventListener("click", () => {
+    state.view = button.dataset.view;
+    loadView();
+  }));
+  ["status", "provider", "limit"].forEach((id) => $(id).addEventListener("change", () => {
+    resetAllPages();
+    loadView();
+  }));
+  $("q").addEventListener("input", () => {
+    clearTimeout(state.searchTimer);
+    state.searchTimer = setTimeout(() => {
+      resetAllPages();
+      loadView();
+    }, 180);
+  });
+  document.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-page-action]");
+    if (action) {
+      applyPageAction(action.dataset.pageAction);
+      return;
+    }
+    const target = event.target.closest("[data-copy]");
+    if (target && navigator.clipboard) navigator.clipboard.writeText(target.dataset.copy);
+  });
+  loadOverview().catch((error) => {
+    $("metrics").innerHTML = '<div class="error">' + esc(error.message) + '</div>';
+  }).finally(loadView);
+})();
+</script>
 </body>
 </html>`;
 }
@@ -513,9 +1585,13 @@ function withLinks(evidence, url) {
     ...evidence,
     links: {
       html: `${origin}/`,
+      admin: `${origin}/admin`,
       health: `${origin}/api/health`,
       evidence: `${origin}/api/demo/evidence`,
       registry: `${origin}/api/demo/registry`,
+      dashboard: Object.fromEntries(
+        Object.entries(DASHBOARD_API_ENDPOINTS).map(([key, path]) => [key, `${origin}${path}`]),
+      ),
     },
   };
 }
