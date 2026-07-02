@@ -1,7 +1,9 @@
 import { createPublicClient, getAddress, http, isAddress } from "viem";
 import { filecoinCalibration } from "viem/chains";
+import { buildAdminSurfaces } from "../admin/reconciliation.mjs";
 import { createTokenHostRegistryDirectReadAdapter } from "../demo/tokenhost-wrapper.mjs";
 import {
+  createRegistryReadModel,
   registryAccountCountRead,
   registryCoordinatorCountRead,
   registryDatasetRecordCountRead,
@@ -18,6 +20,21 @@ const DEFAULT_REGISTRY_RUNTIME_SHA256 =
   "0xed478a27e255a1b27989ffa4f2fcbf38f1a9ec61a84c8d3e20aceb4e26f72040";
 const DEFAULT_RPC_URL = "https://api.calibration.node.glif.io/rpc/v1";
 const DEFAULT_DASHBOARD_PAGE_LIMIT = 20;
+const PAGE_SCOPED_RECONCILIATION_OMITTED_FAMILIES = Object.freeze([
+  "account_usage",
+  "dataset_records",
+  "coordinator_policies",
+]);
+const PAGE_SCOPED_RECONCILIATION_OMITTED_CODES = new Set([
+  "missing_dataset_record",
+  "usage_active_bytes_mismatch",
+  "usage_pending_bytes_mismatch",
+  "usage_reserved_cost_mismatch",
+  "account_over_quota",
+  "uploading_object_missing_coordinator",
+  "uploading_object_disallowed_coordinator",
+  "uploading_object_expired_coordinator",
+]);
 const UPLOAD_STATUS_LABELS = Object.freeze([
   "None",
   "Requested",
@@ -518,19 +535,27 @@ async function readDashboardApi({ route, query, evidence, env, options }) {
       };
     }
     case "reconciliation": {
-      const surfaces = await adapter.readAdminSurfaces({
-        route: { name: "reconciliation" },
+      const objectPage = await adapter.readObjectPage({
+        cursorIdExclusive: dashboardCursor(query),
         limit,
         includeTerminal,
+      });
+      const reconciliation = buildPageScopedReconciliation(objectPage, {
         now: metadata.readUnixTime,
       });
       return {
         metadata,
+        pagination: dashboardPagination(
+          objectPage.pagination,
+          objectPage.objects.length,
+          limit,
+        ),
+        ids: objectPage.ids,
         reconciliation: {
-          ...surfaces.reconciliation,
-          checks: filterReconciliationRows(surfaces.reconciliation.checks, query),
+          ...reconciliation,
+          checks: filterReconciliationRows(reconciliation.checks, query),
         },
-        sourceOfTruth: surfaces.sourceOfTruth,
+        sourceOfTruth: objectPage.sourceOfTruth,
       };
     }
     default:
@@ -758,6 +783,49 @@ function fileRowsFromObjectPage(page) {
     datasetIds: (row.copyReceipts ?? []).map((receipt) => receipt.datasetId),
     copyReceipts: row.copyReceipts ?? [],
   }));
+}
+
+function buildPageScopedReconciliation(objectPage, { now } = {}) {
+  const model = createRegistryReadModel();
+  for (const row of objectPage.objects ?? []) {
+    model.objects[row.objectId] = row.object;
+    model.copyReceipts[row.objectId] = row.copyReceipts ?? [];
+    model.receiptPayers[row.objectId] = row.receiptPayer;
+  }
+
+  const surfaces = buildAdminSurfaces({ model }, { now });
+  const checks = surfaces.reconciliation.checks.filter(
+    (check) => !PAGE_SCOPED_RECONCILIATION_OMITTED_CODES.has(check.code),
+  );
+
+  return {
+    ...reconciliationSummaryFromChecks(checks),
+    scope: "object_page",
+    objectCount: objectPage.objects?.length ?? 0,
+    objectIds: objectPage.ids ?? [],
+    omittedCheckFamilies: PAGE_SCOPED_RECONCILIATION_OMITTED_FAMILIES,
+    omittedCheckCodes: Array.from(PAGE_SCOPED_RECONCILIATION_OMITTED_CODES),
+    checks,
+  };
+}
+
+function reconciliationSummaryFromChecks(checks) {
+  const mismatchCount = checks.filter((check) => check.severity === "error").length;
+  const warningCount = checks.filter((check) => check.severity === "warning").length;
+  const pendingEvidenceCount = checks.filter((check) => check.code === "foc_evidence_not_checked").length;
+  return {
+    status:
+      mismatchCount > 0
+        ? "mismatch"
+        : warningCount > 0
+          ? "warning"
+        : pendingEvidenceCount > 0
+          ? "pending_external_evidence"
+          : "matched",
+    mismatchCount,
+    warningCount,
+    pendingEvidenceCount,
+  };
 }
 
 function filterObjectRows(rows, query) {
@@ -1216,6 +1284,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
 (() => {
   const endpoints = ${JSON.stringify(DASHBOARD_API_ENDPOINTS)};
   const liveReads = ${live ? "true" : "false"};
+  const cursorViews = new Set(["files", "reconciliation"]);
   const offsetViews = new Set(["accounts", "datasets", "coordinators"]);
   const state = {
     view: "files",
@@ -1226,6 +1295,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       accounts: { offset: "0" },
       datasets: { offset: "0" },
       coordinators: { offset: "0" },
+      reconciliation: { cursor: "0" },
     },
   };
   const $ = (id) => document.getElementById(id);
@@ -1254,7 +1324,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     const status = $("status").value;
     const provider = $("provider").value.trim();
     const page = currentPage();
-    if (state.view === "files" && page.cursor !== "0") url.searchParams.set("cursor", page.cursor);
+    if (cursorViews.has(state.view) && page.cursor !== "0") url.searchParams.set("cursor", page.cursor);
     if (offsetViews.has(state.view) && page.offset !== "0") url.searchParams.set("offset", page.offset);
     if (q) url.searchParams.set("q", q);
     if (status && state.view === "files") url.searchParams.set("status", status);
@@ -1392,7 +1462,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       return;
     }
     const page = currentPage();
-    const isFirst = state.view === "files" ? page.cursor === "0" : page.offset === "0";
+    const isFirst = cursorViews.has(state.view) ? page.cursor === "0" : page.offset === "0";
     const position = pagination.mode === "objectIdCursor"
       ? "cursor " + esc(pagination.cursorIdExclusive || "0")
       : "offset " + esc(pagination.offset || "0");
@@ -1427,7 +1497,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     return state.pages[state.view] || {};
   }
   function resetPage() {
-    if (state.view === "files") state.pages.files.cursor = "0";
+    if (cursorViews.has(state.view)) state.pages[state.view].cursor = "0";
     if (offsetViews.has(state.view)) state.pages[state.view].offset = "0";
   }
   function applyPageAction(action) {

@@ -74,6 +74,7 @@ test("Worker serves HTML and public evidence endpoints", async () => {
   assert.match(htmlBody, /function renderCoordinatorView/);
   assert.match(htmlBody, /function combinedOffsetPagination/);
   assert.match(htmlBody, /const relayerRows = body\.relayers \|\| \[\];/);
+  assert.match(htmlBody, /const cursorViews = new Set\(\["files", "reconciliation"\]\);/);
   assert.match(htmlBody, /Relayers/);
   assert.match(htmlBody, /const liveReads = false;/);
   assert.match(await offlineHtml.text(), /const liveReads = false;/);
@@ -117,7 +118,14 @@ test("Worker registry endpoint accepts injected public read snapshot", async () 
 });
 
 test("Worker dashboard APIs expose injected direct-read admin pages", async () => {
-  const dashboardAdapter = createDashboardFixtureAdapter();
+  let readAdminSurfacesCalls = 0;
+  const dashboardAdapter = {
+    ...createDashboardFixtureAdapter(),
+    async readAdminSurfaces() {
+      readAdminSurfacesCalls += 1;
+      throw new Error("dashboard reconciliation should stay page-bounded");
+    },
+  };
   const env = {
     FOC_PLATFORM_REGISTRY_ADDRESS: REGISTRY,
     FOC_PLATFORM_DASHBOARD_DEFAULT_PAGE_LIMIT: "2",
@@ -222,7 +230,21 @@ test("Worker dashboard APIs expose injected direct-read admin pages", async () =
   ]);
 
   assert.equal(reconciliation.status, 200);
-  assert.equal((await reconciliation.json()).reconciliation.status, "pending_external_evidence");
+  const reconciliationBody = await reconciliation.json();
+  assert.equal(reconciliationBody.reconciliation.status, "pending_external_evidence");
+  assert.equal(reconciliationBody.reconciliation.scope, "object_page");
+  assert.deepEqual(reconciliationBody.reconciliation.objectIds, ["2", "1"]);
+  assert.deepEqual(reconciliationBody.ids, ["2", "1"]);
+  assert.equal(reconciliationBody.pagination.mode, "objectIdCursor");
+  assert.equal(reconciliationBody.pagination.hasNextPage, true);
+  assert.ok(reconciliationBody.reconciliation.omittedCheckFamilies.includes("account_usage"));
+  assert.equal(
+    reconciliationBody.reconciliation.checks.some((check) =>
+      reconciliationBody.reconciliation.omittedCheckCodes.includes(check.code),
+    ),
+    false,
+  );
+  assert.equal(readAdminSurfacesCalls, 0);
 });
 
 test("Worker rejects unsupported methods and unknown routes", async () => {

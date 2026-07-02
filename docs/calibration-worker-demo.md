@@ -79,10 +79,11 @@ Calibration direct-read proof.
 | `/api/admin/accounts` | Paginated account usage rows from registry account list/detail reads. |
 | `/api/admin/datasets` | Paginated dataset/provider rows from registry dataset key/detail reads. |
 | `/api/admin/coordinators` | Coordinator policy and relayer rows from registry list/detail reads. |
-| `/api/admin/reconciliation` | Reconciliation warnings and evidence boundaries from direct-read admin surfaces. |
+| `/api/admin/reconciliation` | Page-scoped reconciliation warnings and evidence boundaries for the current object cursor page. Cross-surface account, dataset, and coordinator-policy checks are declared as omitted instead of scanning the whole registry from one Worker request. |
 
 The table endpoints accept `limit` up to the registry max list limit. Files use
-the object-id cursor returned as `pagination.nextCursorIdExclusive`; accounts,
+the object-id cursor returned as `pagination.nextCursorIdExclusive`;
+reconciliation uses the same object cursor for page-scoped checks. Accounts,
 datasets, and coordinators use the returned `pagination.nextOffset`. Filters
 and text search apply to the returned page so the Worker keeps each request
 bounded instead of scanning the full registry for a global search.
