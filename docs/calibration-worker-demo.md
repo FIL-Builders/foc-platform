@@ -186,14 +186,16 @@ FOC provider evidence:
 
 ```sh
 # Export PRIVATE_KEY or PLATFORM_ROOT_PRIVATE_KEY in the current shell first.
-pnpm demo:seed-calibration-fixtures -- --objects 48 --accounts 24 --committed 8 --uploading 8
+pnpm demo:seed-calibration-fixtures -- --objects 48 --accounts 24 --committed 48 --uploading 0
 ```
 
 The seeder creates deterministic synthetic registry-only rows: committed rows
 include synthetic receipt and dataset records, uploading rows are advanced to
 `Uploading`, and the rest remain `Requested`. It uses durable request expiries
-by default (`4102444800`, 2100-01-01 UTC), is idempotent for a given `--seed`,
-never writes the private key, and writes a public summary to
+by default (`4102444800`, 2100-01-01 UTC), waits up to 600 seconds for each
+receipt, keeps the default transaction batch window at four in-flight
+transactions, is idempotent for a given `--seed`, never writes the private key,
+and writes a public summary to
 `artifacts/calibration/fixture-seed-summary.json`.
 
 ## Current Evidence Status
@@ -215,7 +217,7 @@ The committed demo evidence now points at a live Calibration object:
 | Retrieval URL | `https://caliberation-pdp.infrafolio.com/piece/bafkzcibeqcad6egqwuynxmfu6jof2lzkfdp65aelknasuautd4mmjgpvujkaq2ytey` |
 | Worker URL | `https://foc-platform-calibration-demo.snissn.workers.dev` |
 | Worker version | `63d11d7e-6cc1-41af-8c1b-7056a3b1d8e8` |
-| Dashboard direct-read proof | Initial evidence object remains object `1`; fixture seed summary `artifacts/calibration/fixture-seed-summary.json` shows live counts after durable seeding: `objectCount=97`, `accountCount=49`, `datasetRecordCount=17`, `coordinatorCount=1`, `relayerCount=1`; verified durable fixture objects span `50`-`97` with 8 committed, 8 uploading, 32 requested, and no expiry mismatches. |
+| Dashboard direct-read proof | Initial evidence object remains object `1`; fixture seed summary `artifacts/calibration/fixture-seed-summary.json` shows live counts after durable seeding: `objectCount=97`, `accountCount=49`, `datasetRecordCount=33`, `coordinatorCount=1`, `relayerCount=1`; verified durable fixture objects span `50`-`97` with 48 committed, 0 uploading, 0 requested, and no expiry mismatches. |
 
 Public registry transaction hashes:
 
@@ -237,10 +239,9 @@ Worker dashboard. It still does not prove a real session-key coordinator or
 expiry/revoke path. The local dev root address was allowlisted as coordinator
 and relayer to complete the public end-to-end Worker demo.
 
-On July 2, 2026, the admin dashboard registry was also seeded with synthetic
-registry-only fixture rows for demo table density: 48 fixture files across 24
-fixture accounts, with 8 committed, 8 uploading, and 32 requested fixture
-targets. These rows are intentionally separate from the provider-backed object
-`1` evidence above and should not be described as FOC provider storage proof.
-The Worker dashboard defaults to 10 rows per page to stay within Worker
-subrequest limits while still showing pagination over the larger registry.
+On July 6, 2026, the admin dashboard registry fixture set was reconciled to 48
+committed synthetic registry-only rows across 24 fixture accounts. These rows
+are intentionally separate from the provider-backed object `1` evidence above
+and should not be described as FOC provider storage proof. The Worker dashboard
+defaults to 10 rows per page to stay within Worker subrequest limits while still
+showing pagination over the larger registry.
