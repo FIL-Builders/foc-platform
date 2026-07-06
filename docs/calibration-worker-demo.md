@@ -84,6 +84,11 @@ datasets, and coordinators use the returned `pagination.nextOffset`. Filters
 and text search apply to the returned page so the Worker keeps each request
 bounded instead of scanning the full registry for a global search.
 
+The admin dashboard renders numbered pagination controls for the current table:
+`Previous`, discovered page numbers, and `Next`. File and reconciliation pages
+enable number jumps only for cursor pages the browser has already discovered or
+the immediate next page returned by the current registry response.
+
 Append `?live=false` to any dashboard or registry endpoint when you need a
 route-level smoke check without making public RPC calls. Unknown dashboard
 routes still return `404`.
