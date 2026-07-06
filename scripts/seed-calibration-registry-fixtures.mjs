@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -23,7 +24,9 @@ const DEFAULT_FIXTURE_SEED = "2026-07-demo-grid-durable";
 const DEFAULT_FIXTURE_REQUEST_EXPIRES_AT = 4_102_444_800n; // 2100-01-01T00:00:00Z
 const DEFAULT_GAS_LIMIT = 125_000_000n;
 const DEFAULT_RPC_TIMEOUT_MS = 120_000;
-const DEFAULT_RECEIPT_TIMEOUT_MS = 300_000;
+const DEFAULT_RECEIPT_TIMEOUT_MS = 600_000;
+const DEFAULT_BATCH_SIZE = 4;
+const RECEIPT_POLL_INTERVAL_MS = 5_000;
 const ZERO_BYTES32 = `0x${"0".repeat(64)}`;
 const FIXTURE_COORDINATOR_MAX_FINALIZE_DELAY = 86_400n;
 const STATUS = Object.freeze({
@@ -59,7 +62,7 @@ Common optional environment:
   FOC_PLATFORM_REGISTRY_ADDRESS             defaults to the committed demo registry
   FOC_PLATFORM_FIXTURE_GAS_LIMIT            defaults to 125000000
   FOC_PLATFORM_FIXTURE_RPC_TIMEOUT_MS       defaults to 120000
-  FOC_PLATFORM_FIXTURE_RECEIPT_TIMEOUT_MS   defaults to 300000
+  FOC_PLATFORM_FIXTURE_RECEIPT_TIMEOUT_MS   defaults to ${DEFAULT_RECEIPT_TIMEOUT_MS}
 
 Options:
   --objects <n>       total fixture files to ensure, default 48
@@ -72,7 +75,7 @@ Options:
   --provider <n>      synthetic provider id base, default 40
   --dataset <n>       synthetic dataset id base, default 13000
   --piece <n>         synthetic piece id base, default 7000
-  --batch-size <n>    transactions to send before waiting, default 12
+  --batch-size <n>    transactions to send before waiting, default ${DEFAULT_BATCH_SIZE}
   --output <path>     write public summary JSON, default ${DEFAULT_OUTPUT_PATH}
   --dry-run           read and plan only; do not submit transactions
 `);
@@ -264,6 +267,7 @@ export async function seedCalibrationRegistryFixtures({
     seed: config.seed,
     gasLimit: config.gas.toString(),
     receiptTimeoutMs: config.receiptTimeoutMs,
+    batchSize: config.batchSize,
     requestedFixtures: {
       objects: config.objectCount,
       accounts: config.accountCount,
@@ -318,7 +322,7 @@ function loadConfig(env, options) {
       "FOC_PLATFORM_FIXTURE_RECEIPT_TIMEOUT_MS",
     ),
     gas: BigInt(optionalEnvDefault(env, "FOC_PLATFORM_FIXTURE_GAS_LIMIT", DEFAULT_GAS_LIMIT.toString())),
-    batchSize: positiveInt(options.batchSize ?? "12", "batch-size"),
+    batchSize: positiveInt(options.batchSize ?? DEFAULT_BATCH_SIZE.toString(), "batch-size"),
     dryRun: Boolean(options.dryRun),
     outputPath: options.output ?? DEFAULT_OUTPUT_PATH,
     seed: String(options.seed ?? DEFAULT_FIXTURE_SEED),
@@ -561,7 +565,11 @@ async function maybeSend({
     args,
     gas: config.gas,
   });
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  const receipt = await waitForTransactionReceipt({
+    publicClient,
+    hash,
+    timeoutMs: config.receiptTimeoutMs,
+  });
   if (receipt.status !== "success") {
     throw new Error(`${functionName} reverted: ${hash}`);
   }
@@ -611,9 +619,10 @@ async function sendBatch({
 
     const receipts = await Promise.all(
       pending.map((plan) =>
-        publicClient.waitForTransactionReceipt({
+        waitForTransactionReceipt({
+          publicClient,
           hash: plan.hash,
-          timeout: config.receiptTimeoutMs,
+          timeoutMs: config.receiptTimeoutMs,
         }),
       ),
     );
@@ -626,6 +635,38 @@ async function sendBatch({
       stdout(`[ok] ${plan.label} ${plan.hash}`);
     }
   }
+}
+
+async function waitForTransactionReceipt({ publicClient, hash, timeoutMs }) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    const remainingMs = Math.max(1, deadline - Date.now());
+    try {
+      return await publicClient.waitForTransactionReceipt({
+        hash,
+        timeout: remainingMs,
+        pollingInterval: RECEIPT_POLL_INTERVAL_MS,
+      });
+    } catch (error) {
+      if (!isRetryableReceiptReadError(error)) throw error;
+      lastError = error;
+      await delay(RECEIPT_POLL_INTERVAL_MS);
+    }
+  }
+  throw new Error(
+    `Timed out waiting for transaction receipt ${hash}: ${lastError?.message ?? "receipt unavailable"}`,
+  );
+}
+
+function isRetryableReceiptReadError(error) {
+  const message = String(error?.shortMessage ?? error?.message ?? error ?? "").toLowerCase();
+  return (
+    error?.name === "TransactionReceiptNotFoundError" ||
+    message.includes("receipt") && message.includes("could not be found") ||
+    message.includes("transaction may not be processed") ||
+    message.includes("requested epoch was a null round")
+  );
 }
 
 function assertFixtureRequestMatches({ row, objectId, object }) {
