@@ -1284,6 +1284,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       align-items: center;
     }
     .pager button {
+      min-width: 32px;
       min-height: 30px;
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -1292,10 +1293,23 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       padding: 0 10px;
       cursor: pointer;
     }
+    .pager button[aria-current="page"] {
+      border-color: var(--ink);
+      box-shadow: inset 0 0 0 1px var(--ink);
+      background: #fff;
+      color: var(--ink);
+      font-weight: 800;
+    }
     .pager button:disabled {
       cursor: default;
       color: var(--muted);
       background: #f3f4f6;
+    }
+    .pager-gap {
+      min-width: 18px;
+      color: var(--muted);
+      text-align: center;
+      font-weight: 800;
     }
     a {
       color: var(--accent-2);
@@ -1352,7 +1366,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     <input id="q" name="q" placeholder="Search ids, addresses, hashes" autocomplete="off">
     <select id="status" name="status" aria-label="Status filter">
       <option value="">All statuses</option>
-      ${UPLOAD_STATUS_LABELS.slice(1).map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`).join("")}
+      ${UPLOAD_STATUS_LABELS.slice(1).map((label) => `<option value="${escapeHtml(label)}"${label === "Committed" ? " selected" : ""}>${escapeHtml(label)}</option>`).join("")}
     </select>
     <input id="provider" name="provider" placeholder="Provider id" autocomplete="off">
     <select id="limit" name="limit" aria-label="Page limit">
@@ -1392,13 +1406,14 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     view: "files",
     summary: null,
     pagination: null,
+    pageRequestPending: false,
     requestSeq: 0,
     pages: {
-      files: { cursor: "0" },
-      accounts: { offset: "0" },
-      datasets: { offset: "0" },
-      coordinators: { offset: "0" },
-      reconciliation: { cursor: "0" },
+      files: { cursor: "0", cursors: ["0"], index: 0 },
+      accounts: { offset: "0", offsets: ["0"], index: 0 },
+      datasets: { offset: "0", offsets: ["0"], index: 0 },
+      coordinators: { offset: "0", offsets: ["0"], index: 0 },
+      reconciliation: { cursor: "0", cursors: ["0"], index: 0 },
     },
   };
   const $ = (id) => document.getElementById(id);
@@ -1501,6 +1516,8 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
   async function loadView() {
     const view = state.view;
     const requestId = ++state.requestSeq;
+    state.pageRequestPending = true;
+    disablePagerActions();
     $("table-wrap").innerHTML = '<div class="empty">Loading ' + esc(view) + '</div>';
     $("table-title").textContent = title(view);
     document.querySelectorAll(".nav button").forEach((button) => {
@@ -1509,13 +1526,20 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     try {
       const body = await fetchJson(endpoints[view], view);
       if (requestId !== state.requestSeq || view !== state.view) return;
+      state.pageRequestPending = false;
       renderView(body, view);
       renderFooter(body, view);
     } catch (error) {
       if (requestId !== state.requestSeq || view !== state.view) return;
+      state.pageRequestPending = false;
       $("table-wrap").innerHTML = '<div class="error">' + esc(error.message) + '</div>';
       $("footer").textContent = "Registry read unavailable";
     }
+  }
+  function disablePagerActions() {
+    document.querySelectorAll("[data-page-action]").forEach((button) => {
+      button.disabled = true;
+    });
   }
   function renderMetrics(summary = {}) {
     const warningsUnavailable =
@@ -1653,17 +1677,76 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
       $("footer").innerHTML = '<span>' + readState + '</span>';
       return;
     }
+    rememberPagePosition(view, pagination);
     const page = currentPage(view);
-    const isFirst = cursorViews.has(view) ? page.cursor === "0" : page.offset === "0";
     const position = pagination.mode === "objectIdCursor"
       ? "cursor " + esc(pagination.cursorIdExclusive || "0")
       : "offset " + esc(pagination.offset || "0");
+    const pageLabel = "page " + esc(currentPageNumber(view));
     $("footer").innerHTML =
-      '<span>' + readState + " / " + position + '</span>' +
-      '<span class="pager">' +
-      '<button type="button" data-page-action="first"' + (isFirst ? " disabled" : "") + '>First</button>' +
-      '<button type="button" data-page-action="next"' + (!pagination.hasNextPage ? " disabled" : "") + '>Next</button>' +
-      '</span>';
+      '<span>' + readState + " / " + position + " / " + pageLabel + '</span>' +
+      renderPager(view, pagination);
+  }
+  function renderPager(view, pagination) {
+    const page = currentPage(view);
+    const currentIndex = Number(page.index || 0);
+    const maxKnownIndex = knownPageMaxIndex(view, pagination);
+    const isFirst = currentIndex === 0;
+    const items = paginationWindow(currentIndex, maxKnownIndex);
+    const buttons = [
+      '<button type="button" data-page-action="previous"' + (isFirst ? " disabled" : "") + '>Previous</button>',
+      ...items.map((item) => {
+        if (item === "gap") return '<span class="pager-gap" aria-hidden="true">...</span>';
+        const pageNumber = item + 1;
+        const current = item === currentIndex;
+        return '<button type="button" data-page-action="page" data-page-index="' + esc(item) + '"' + (current ? ' aria-current="page"' : "") + '>' + esc(pageNumber) + '</button>';
+      }),
+      '<button type="button" data-page-action="next"' + (!pagination.hasNextPage ? " disabled" : "") + '>Next</button>',
+    ];
+    return '<span class="pager" aria-label="Pagination">' + buttons.join("") + '</span>';
+  }
+  function rememberPagePosition(view, pagination) {
+    const page = currentPage(view);
+    page.index = Number(page.index || 0);
+    if (cursorViews.has(view)) {
+      page.cursors = page.cursors || ["0"];
+      page.cursors[page.index] = page.cursor || pagination.cursorIdExclusive || "0";
+      if (pagination.hasNextPage && pagination.nextCursorIdExclusive) {
+        page.cursors[page.index + 1] = pagination.nextCursorIdExclusive;
+      }
+    }
+    if (offsetViews.has(view)) {
+      page.offsets = page.offsets || ["0"];
+      page.offsets[page.index] = page.offset || pagination.offset || "0";
+      if (pagination.hasNextPage && pagination.nextOffset) {
+        page.offsets[page.index + 1] = pagination.nextOffset;
+      }
+    }
+  }
+  function currentPageNumber(view = state.view) {
+    return Number(currentPage(view).index || 0) + 1;
+  }
+  function knownPageMaxIndex(view, pagination) {
+    const page = currentPage(view);
+    const currentIndex = Number(page.index || 0);
+    const positions = cursorViews.has(view) ? page.cursors : page.offsets;
+    const discoveredIndex = Math.max(0, (positions || ["0"]).length - 1);
+    const nextIndex = pagination?.hasNextPage ? currentIndex + 1 : currentIndex;
+    return Math.max(currentIndex, discoveredIndex, nextIndex);
+  }
+  function paginationWindow(currentIndex, maxKnownIndex) {
+    const selected = new Set([0, currentIndex, maxKnownIndex]);
+    for (let index = currentIndex - 1; index <= currentIndex + 1; index += 1) {
+      if (index >= 0 && index <= maxKnownIndex) selected.add(index);
+    }
+    const indexes = Array.from(selected).filter((index) => index >= 0 && index <= maxKnownIndex).sort((a, b) => a - b);
+    const items = [];
+    indexes.forEach((index) => {
+      const previous = items[items.length - 1];
+      if (typeof previous === "number" && index - previous > 1) items.push("gap");
+      items.push(index);
+    });
+    return items;
   }
   function primaryPagination(pagination) {
     if (!pagination) return null;
@@ -1689,22 +1772,61 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
     return state.pages[view] || {};
   }
   function resetPage(view = state.view) {
-    if (cursorViews.has(view)) state.pages[view].cursor = "0";
-    if (offsetViews.has(view)) state.pages[view].offset = "0";
+    state.pages[view].index = 0;
+    if (cursorViews.has(view)) {
+      state.pages[view].cursor = "0";
+      state.pages[view].cursors = ["0"];
+    }
+    if (offsetViews.has(view)) {
+      state.pages[view].offset = "0";
+      state.pages[view].offsets = ["0"];
+    }
   }
   function resetAllPages() {
     Object.keys(state.pages).forEach((view) => resetPage(view));
   }
-  function applyPageAction(action) {
+  function goToPage(index, view = state.view) {
+    const page = currentPage(view);
+    const nextIndex = Math.max(0, Number(index) || 0);
+    if (nextIndex === Number(page.index || 0)) return;
+    if (cursorViews.has(view)) {
+      const cursor = (page.cursors || ["0"])[nextIndex];
+      if (cursor === undefined) return;
+      page.cursor = cursor;
+    }
+    if (offsetViews.has(view)) {
+      const offset = (page.offsets || ["0"])[nextIndex];
+      if (offset === undefined) return;
+      page.offset = offset;
+    }
+    page.index = nextIndex;
+    loadView();
+  }
+  function applyPageAction(action, targetIndex) {
+    if (state.pageRequestPending) return;
     const pagination = state.pagination;
     const page = currentPage();
-    if (action === "first") {
-      resetPage();
-    } else if (action === "next" && pagination?.hasNextPage) {
-      if (pagination.mode === "objectIdCursor") page.cursor = pagination.nextCursorIdExclusive || "0";
-      if (pagination.mode === "offset") page.offset = pagination.nextOffset || "0";
+    const currentIndex = Number(page.index || 0);
+    if (action === "previous") {
+      goToPage(currentIndex - 1);
+      return;
     }
-    loadView();
+    if (action === "page") {
+      goToPage(targetIndex);
+      return;
+    }
+    if (action === "next" && pagination?.hasNextPage) {
+      const nextIndex = currentIndex + 1;
+      if (pagination.mode === "objectIdCursor") {
+        page.cursors = page.cursors || ["0"];
+        page.cursors[nextIndex] = pagination.nextCursorIdExclusive || "0";
+      }
+      if (pagination.mode === "offset") {
+        page.offsets = page.offsets || ["0"];
+        page.offsets[nextIndex] = pagination.nextOffset || "0";
+      }
+      goToPage(nextIndex);
+    }
   }
   function title(view) {
     return ({ files: "Files", accounts: "Accounts", datasets: "Datasets", coordinators: "Coordinators", reconciliation: "Reconciliation" })[view] || "Files";
@@ -1727,7 +1849,7 @@ function renderAdminDashboardHtml(evidence, { live = true } = {}) {
   document.addEventListener("click", (event) => {
     const action = event.target.closest("[data-page-action]");
     if (action) {
-      applyPageAction(action.dataset.pageAction);
+      applyPageAction(action.dataset.pageAction, action.dataset.pageIndex);
       return;
     }
     const objectToggle = event.target.closest("[data-object-id]");
